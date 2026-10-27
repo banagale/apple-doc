@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from dataclasses import asdict
 
@@ -69,8 +70,15 @@ def positive_int(value: str) -> int:
     return n
 
 
+class Parser(argparse.ArgumentParser):
+    def error(self, message: str):
+        if "unrecognized arguments: -" in message:
+            message += ' (put "--" before a query that starts with "-")'
+        super().error(message)
+
+
 def make_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(
+    ap = Parser(
         prog="apple-doc",
         usage="apple-doc [options] QUERY...\n"
         "       apple-doc --full URI | --build | --doctor | --list-frameworks",
@@ -164,7 +172,16 @@ def doctor() -> int:
         return code or INDEX_PROBLEM
     try:
         idx, state = open_index()
+        try:
+            check = idx.execute("PRAGMA quick_check").fetchone()[0]
+        except sqlite3.Error as e:
+            check = str(e)
         idx.close()
+        if check != "ok":
+            raise AppleDocError(
+                "index at %s is damaged (%s); run `apple-doc --build`." % (path, check),
+                INDEX_PROBLEM,
+            )
     except AppleDocError as e:
         print("index:   BROKEN   %s" % e)
         return code or e.code

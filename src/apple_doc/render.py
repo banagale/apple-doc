@@ -42,7 +42,7 @@ def avail(doc: dict) -> str:
     for p in doc.get("platforms") or []:
         if p.get("platform") not in ("macOS", "Mac Catalyst") and out:
             continue
-        s = p.get("platform", "?")
+        s = str(p.get("platform", "?"))
         if p.get("introduced") is not None:
             s += " %s+" % p["introduced"]
         if p.get("deprecated"):

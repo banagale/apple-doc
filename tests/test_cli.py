@@ -333,3 +333,95 @@ def test_full_lists_sections_and_suggests_anchors(built):
     assert data["sections"] == ["Overview"] and data["availability"] == "macOS 10.0+"
     r = built("--full", "/documentation/AppKit/NSQuokkaView#Nope")
     assert r.returncode == 5 and "its sections: #Overview" in r.stderr
+
+
+# --- round 2 adversarial fixes -------------------------------------------------------------
+
+
+def _asset_with_rows(tool, rows, name="m"):
+    import sqlite3
+
+    path = tool.root / name / "x.asset/AssetData/documentation-db/index.sql"
+    path.parent.mkdir(parents=True)
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE documents(asset_id TEXT PRIMARY KEY, document BLOB)")
+    db.executemany("INSERT INTO documents VALUES(?,?)", rows)
+    db.commit()
+    db.close()
+    return dict(tool.env, APPLE_DOC_ASSET_GLOB=str(path))
+
+
+def test_malformed_rows_are_skipped_or_reported(tool):
+    good = json.dumps({"title": "Okapi", "framework": "AppKit", "content": "# Okapi\nAn okapi."})
+    env = _asset_with_rows(
+        tool,
+        [
+            ("/documentation/AppKit/Okapi", good),
+            ("/documentation/AppKit/Bytes", b"\xff\x00\xfe"),
+            ("/documentation/AppKit/List", "[1, 2]"),
+            ("/documentation/AppKit/Null", None),
+            ("/documentation/AppKit/Typed", '{"title": 5, "framework": [1], "content": {"a": 1}}'),
+            ("/documentation/AppKit/Plats", '{"title": "P", "platforms": [5, null, "x"]}'),
+        ],
+    )
+    r = tool("--build", env=env)
+    assert r.returncode == 0 and "indexed 3 docs" in r.stdout, r.stderr
+    r = tool("okapi", env=env)
+    assert r.returncode == 0 and r.stdout.startswith("1. Okapi")
+    for uri in ("Bytes", "List", "Null"):
+        r = tool("--full", "/documentation/AppKit/" + uri, env=env)
+        assert r.returncode == 3 and "unreadable" in r.stderr and "Traceback" not in r.stderr
+    assert tool("--full", "/documentation/AppKit/Typed", env=env).returncode == 0
+
+
+def test_build_failures_are_clean(tool):
+    tool.index.mkdir(parents=True)  # index path is a directory
+    r = tool("--build")
+    assert r.returncode == 4 and "is a directory" in r.stderr
+    assert list(tool.index.parent.iterdir()) == [tool.index]
+    blocker = tool.root / "afile"
+    blocker.write_text("x")
+    env = dict(tool.env, APPLE_DOC_INDEX=str(blocker / "sub" / "fts.sqlite"))
+    r = tool("--build", env=env)
+    assert r.returncode == 4 and "cannot write the index" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
+def test_empty_asset_does_not_replace_the_index(built):
+    env = _asset_with_rows(built, [])
+    before = built.index.read_bytes()
+    r = built("--build", env=env)
+    assert r.returncode == 3 and "no readable documents" in r.stderr
+    assert built.index.read_bytes() == before
+
+
+def test_wrong_schema_asset_is_unreadable_for_doctor(tool):
+    import sqlite3
+
+    path = tool.root / "w.asset/AssetData/documentation-db/index.sql"
+    path.parent.mkdir(parents=True)
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE documents(id INTEGER, body TEXT)")
+    db.commit()
+    db.close()
+    env = dict(tool.env, APPLE_DOC_ASSET_GLOB=str(path))
+    r = tool("--doctor", env=env)
+    assert r.returncode == 3 and "asset:   UNREADABLE" in r.stdout
+
+
+def test_damaged_index_is_an_index_problem(built):
+    data = bytearray(built.index.read_bytes())
+    data[4096:-4096] = bytes(len(data) - 8192)
+    built.index.write_bytes(bytes(data))
+    r = built("glimmerKey")
+    assert r.returncode == 4 and "Traceback" not in r.stderr
+    assert built("--doctor").returncode == 4
+
+
+def test_dash_query_error_mentions_double_dash(built):
+    r = built("-glimmerKey")
+    assert r.returncode == 2 and 'put "--" before a query' in r.stderr
+
+
+def test_framework_name_is_trimmed(built):
+    assert built("glimmerKey", "-f", "  AppKit ").returncode == 0

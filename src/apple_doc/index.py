@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import tempfile
 import time
 from dataclasses import dataclass
 
@@ -84,11 +85,32 @@ def check_asset(path: str) -> int:
     try:
         db = ro(path)
         try:
+            db.execute("SELECT asset_id, document FROM documents LIMIT 1").fetchall()
             return db.execute("SELECT count(*) FROM documents").fetchone()[0]
         finally:
             db.close()
     except sqlite3.Error as e:
         raise unreadable_asset(path, e) from e
+
+
+def load_doc(blob) -> dict | None:
+    """Parse one document row; None if it is not the JSON object Apple's asset stores.
+
+    Text fields are coerced to strings and platforms to a list of dicts, so a damaged or
+    unexpected row can't crash the build, search or --full.
+    """
+    try:
+        doc = json.loads(blob)
+    except (ValueError, TypeError):  # includes UnicodeDecodeError
+        return None
+    if not isinstance(doc, dict):
+        return None
+    for k in ("title", "framework", "type", "content", "roleHeading"):
+        if k in doc and not isinstance(doc[k], str):
+            doc[k] = ""
+    plats = doc.get("platforms")
+    doc["platforms"] = [p for p in plats if isinstance(p, dict)] if isinstance(plats, list) else []
+    return doc
 
 
 def camel_parts(s: str) -> list[str]:
@@ -117,21 +139,36 @@ def ident_text(uri: str, title: str, content: str) -> str:
 def build() -> str:
     """(Re)build the keyword index from the newest asset. Returns a one-line summary."""
     src = asset_db()
+    check_asset(src)
     index = index_path()
-    os.makedirs(os.path.dirname(index) or ".", exist_ok=True)
-    tmp = index + ".tmp"
-    if os.path.exists(tmp):
-        os.remove(tmp)
+    if os.path.isdir(index):
+        raise AppleDocError(
+            "index path %s is a directory; point APPLE_DOC_INDEX at a file." % index,
+            INDEX_PROBLEM,
+        )
     t0 = time.time()
+    tmp = None
     try:
+        parent = os.path.dirname(index) or "."
+        os.makedirs(parent, exist_ok=True)
+        # A unique temp file per run, so concurrent builds don't collide.
+        fd, tmp = tempfile.mkstemp(dir=parent, prefix=os.path.basename(index) + ".", suffix=".tmp")
+        os.close(fd)
         n = _write_index(src, tmp)
-    except BaseException as e:
-        if os.path.exists(tmp):
+        if n == 0:
+            raise AppleDocError(
+                "documentation asset at %s has no readable documents; index not replaced." % src,
+                ASSET_NOT_FOUND,
+            )
+        os.replace(tmp, index)
+        tmp = None
+    except sqlite3.Error as e:
+        raise AppleDocError("index build failed (%s)" % e, INDEX_PROBLEM) from e
+    except OSError as e:
+        raise AppleDocError("cannot write the index at %s (%s)" % (index, e), INDEX_PROBLEM) from e
+    finally:
+        if tmp and os.path.exists(tmp):
             os.remove(tmp)
-        if isinstance(e, sqlite3.Error):
-            raise AppleDocError("index build failed (%s)" % e, INDEX_PROBLEM) from e
-        raise
-    os.replace(tmp, index)
     return "indexed %d docs from %s in %.0fs -> %s (%.0f MB)" % (
         n,
         src,
@@ -143,11 +180,6 @@ def build() -> str:
 
 def _write_index(src: str, tmp: str) -> int:
     s = ro(src)
-    try:
-        s.execute("SELECT asset_id, document FROM documents LIMIT 1").fetchall()
-    except sqlite3.Error as e:
-        s.close()
-        raise unreadable_asset(src, e) from e
     d = sqlite3.connect(tmp)
     d.executescript("""
       PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;
@@ -158,11 +190,10 @@ def _write_index(src: str, tmp: str) -> int:
       CREATE TABLE info(k TEXT PRIMARY KEY, v TEXT);""")
     n = 0
     for aid, blob in s.execute("SELECT asset_id, document FROM documents"):
-        if "#" in aid and aid.split("#", 1)[1] in SKIP_ANCHORS:
+        if not isinstance(aid, str) or ("#" in aid and aid.split("#", 1)[1] in SKIP_ANCHORS):
             continue
-        try:
-            doc = json.loads(blob)
-        except Exception:
+        doc = load_doc(blob)
+        if doc is None:
             continue
         content = doc.get("content") or ""
         title = doc.get("title") or aid.rsplit("/", 1)[-1]

@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import difflib
-import json
 import os
 import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
 
-from apple_doc.errors import PAGE_NOT_FOUND, USAGE, AppleDocError
-from apple_doc.index import SKIP_ANCHORS, asset_db, camel_parts, open_index, ro, unreadable_asset
+from apple_doc.errors import ASSET_NOT_FOUND, INDEX_PROBLEM, PAGE_NOT_FOUND, USAGE, AppleDocError
+from apple_doc.index import (
+    SKIP_ANCHORS,
+    asset_db,
+    camel_parts,
+    load_doc,
+    open_index,
+    ro,
+    unreadable_asset,
+)
 from apple_doc.render import WEB, avail, excerpt, page_lines
 
 STOP = set(
@@ -102,14 +109,22 @@ def _search(idx, src, state, query, words, terms, framework, limit, lines, any_p
         sql += " AND m.framework = ? COLLATE NOCASE"
         params.append(framework)
     sql += " ORDER BY r LIMIT %d" % CANDIDATES
-    cands = idx.execute(sql, params).fetchall()
+    try:
+        cands = idx.execute(sql, params).fetchall()
+    except sqlite3.Error as e:
+        raise AppleDocError(
+            "index at %s is unreadable (%s); run `apple-doc --build`." % (state.path, e),
+            INDEX_PROBLEM,
+        ) from e
     wl = [w.lower() for w in words]
     ranked = []
     for _cid, uri, fw, typ, macos, r in cands:
         row = docs.execute("SELECT document FROM documents WHERE asset_id=?", (uri,)).fetchone()
         if not row:
             continue
-        doc = json.loads(row[0])
+        doc = load_doc(row[0])
+        if doc is None:
+            continue
         content = doc.get("content") or ""
         low = content.lower()
         path = uri.lower()
@@ -165,7 +180,8 @@ def list_frameworks() -> list[tuple[str, int]]:
 
 def resolve_framework(idx: sqlite3.Connection, name: str) -> str:
     """The name as given if the index knows it (any case); otherwise a usage error with hints."""
-    if not name.strip():
+    name = name.strip()
+    if not name:
         raise AppleDocError("--framework needs a name, e.g. -f AppKit", USAGE)
     if idx.execute(
         "SELECT 1 FROM meta WHERE framework = ? COLLATE NOCASE LIMIT 1", (name,)
@@ -273,7 +289,11 @@ def get_page(uri: str) -> Page:
                             % (uri.split("#", 1)[1], base[0], " ".join("#" + a for a in anchors)),
                         )
                 raise
-        doc = json.loads(row[1])
+        doc = load_doc(row[1])
+        if doc is None:
+            raise AppleDocError(
+                "page %s exists but its stored content is unreadable" % row[0], ASSET_NOT_FOUND
+            )
         sections = [] if "#" in row[0] else page_sections(docs, row[0])
         docs.close()
     except sqlite3.Error as e:
@@ -297,7 +317,7 @@ def _by_last_segment(docs: sqlite3.Connection, uri: str, given: str):
     path, _, frag = uri.partition("#")
     seg = path.rsplit("/", 1)[-1]
     rows = []
-    if seg:
+    if seg and len(uri) <= 2000:
         want = "/" + seg.lower() + (("#" + frag.lower()) if frag else "")
         like = "%/" + _like_escape(seg) + ("#" + _like_escape(frag) if frag else "")
         rows = [
