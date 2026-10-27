@@ -158,7 +158,11 @@ def doctor() -> int:
     if asset:
         try:
             n = check_asset(asset)
-            print("asset:   ok     %s (%d documents)" % (asset, n))
+            if n:
+                print("asset:   ok     %s (%d documents)" % (asset, n))
+            else:
+                print("asset:   EMPTY  %s has no documents" % asset)
+                code = ASSET_NOT_FOUND
         except AppleDocError as e:
             print("asset:   UNREADABLE  %s" % e)
             code = ASSET_NOT_FOUND

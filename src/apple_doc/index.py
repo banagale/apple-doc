@@ -146,6 +146,12 @@ def build() -> str:
             "index path %s is a directory; point APPLE_DOC_INDEX at a file." % index,
             INDEX_PROBLEM,
         )
+    if os.path.isfile(index) and os.path.getsize(index) > 0 and not _is_index(index):
+        raise AppleDocError(
+            "%s exists and is not an apple-doc index; refusing to overwrite it. "
+            "Point APPLE_DOC_INDEX somewhere else or remove the file." % index,
+            INDEX_PROBLEM,
+        )
     t0 = time.time()
     tmp = None
     try:
@@ -154,7 +160,10 @@ def build() -> str:
         # A unique temp file per run, so concurrent builds don't collide.
         fd, tmp = tempfile.mkstemp(dir=parent, prefix=os.path.basename(index) + ".", suffix=".tmp")
         os.close(fd)
-        n = _write_index(src, tmp)
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)  # mkstemp creates 0600; a cache file needn't be private
+        n, skipped = _write_index(src, tmp)
         if n == 0:
             raise AppleDocError(
                 "documentation asset at %s has no readable documents; index not replaced." % src,
@@ -169,16 +178,31 @@ def build() -> str:
     finally:
         if tmp and os.path.exists(tmp):
             os.remove(tmp)
-    return "indexed %d docs from %s in %.0fs -> %s (%.0f MB)" % (
+    summary = "indexed %d docs from %s in %.0fs -> %s (%.0f MB)" % (
         n,
         src,
         time.time() - t0,
         index,
         os.path.getsize(index) / 1e6,
     )
+    if skipped:
+        summary += "; skipped %d unreadable rows" % skipped
+    return summary
 
 
-def _write_index(src: str, tmp: str) -> int:
+def _is_index(path: str) -> bool:
+    try:
+        db = ro(path)
+        try:
+            db.execute("SELECT v FROM info WHERE k='source'").fetchall()
+            return True
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return False
+
+
+def _write_index(src: str, tmp: str) -> tuple[int, int]:
     s = ro(src)
     d = sqlite3.connect(tmp)
     d.executescript("""
@@ -188,12 +212,13 @@ def _write_index(src: str, tmp: str) -> int:
       CREATE VIRTUAL TABLE fts USING fts5(title, ident, body, content='',
                                           tokenize='porter unicode61');
       CREATE TABLE info(k TEXT PRIMARY KEY, v TEXT);""")
-    n = 0
+    n = skipped = 0
     for aid, blob in s.execute("SELECT asset_id, document FROM documents"):
-        if not isinstance(aid, str) or ("#" in aid and aid.split("#", 1)[1] in SKIP_ANCHORS):
+        if isinstance(aid, str) and "#" in aid and aid.split("#", 1)[1] in SKIP_ANCHORS:
             continue
-        doc = load_doc(blob)
+        doc = load_doc(blob) if isinstance(aid, str) and aid.startswith("/") else None
         if doc is None:
+            skipped += 1
             continue
         content = doc.get("content") or ""
         title = doc.get("title") or aid.rsplit("/", 1)[-1]
@@ -218,7 +243,7 @@ def _write_index(src: str, tmp: str) -> int:
     d.commit()
     d.close()
     s.close()
-    return n
+    return n, skipped
 
 
 @dataclass

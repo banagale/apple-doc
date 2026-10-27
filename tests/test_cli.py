@@ -366,6 +366,7 @@ def test_malformed_rows_are_skipped_or_reported(tool):
     )
     r = tool("--build", env=env)
     assert r.returncode == 0 and "indexed 3 docs" in r.stdout, r.stderr
+    assert "skipped 3 unreadable rows" in r.stdout
     r = tool("okapi", env=env)
     assert r.returncode == 0 and r.stdout.startswith("1. Okapi")
     for uri in ("Bytes", "List", "Null"):
@@ -425,3 +426,25 @@ def test_dash_query_error_mentions_double_dash(built):
 
 def test_framework_name_is_trimmed(built):
     assert built("glimmerKey", "-f", "  AppKit ").returncode == 0
+
+
+def test_build_refuses_to_overwrite_a_foreign_file(tool):
+    tool.index.parent.mkdir(parents=True)
+    tool.index.write_text("precious notes")
+    r = tool("--build")
+    assert r.returncode == 4 and "refusing to overwrite" in r.stderr
+    assert tool.index.read_text() == "precious notes"
+
+
+def test_build_output_is_world_readable_like_a_normal_cache(built):
+    import stat
+
+    umask = os.umask(0)
+    os.umask(umask)
+    assert stat.S_IMODE(os.stat(built.index).st_mode) == 0o666 & ~umask
+
+
+def test_doctor_flags_an_empty_asset(tool):
+    env = _asset_with_rows(tool, [])
+    r = tool("--doctor", env=env)
+    assert r.returncode == 3 and "asset:   EMPTY" in r.stdout

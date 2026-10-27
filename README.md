@@ -174,8 +174,8 @@ JSON output:
 | 0 | Success (a search with at least one hit, a page printed, index built, doctor all clear) |
 | 1 | The search ran and found nothing |
 | 2 | Usage error: unknown flag, missing query or one with no searchable words (only stopwords, punctuation or non-ASCII text), unknown `--framework` (with suggestions), conflicting modes |
-| 3 | Apple's documentation asset not found, or not a readable documentation database |
-| 4 | Index missing, unreadable or not writable during `--build`; `--doctor` also returns 4 when the index is stale or damaged |
+| 3 | Apple's documentation asset not found, empty or not a readable documentation database (also `--full` on a page whose stored content can't be parsed) |
+| 4 | Index missing, unreadable or not writable during `--build` (it won't overwrite a file that isn't an apple-doc index); `--doctor` also returns 4 when the index is stale or damaged |
 | 5 | `--full`: no page at that path |
 
 A stale index doesn't fail a search. The search still runs, and one line on stderr tells you to
