@@ -49,3 +49,22 @@ def test_page_lines_keep_code_indentation():
         "```",
         "Spaced prose.",
     ]
+
+
+def test_versions_print_as_apple_wrote_them():
+    from apple_doc.index import load_doc
+
+    blob = (
+        '{"title": "T", "platforms": ['
+        '{"platform": "macOS", "introduced": 10.10, "deprecated": false},'
+        '{"platform": "iOS", "introduced": 15.0}]}'
+    )
+    assert avail(load_doc(blob)) == "macOS 10.10+"
+    doc = load_doc(blob.replace("10.10", "13.0"))
+    assert avail(doc) == "macOS 13.0+"
+    assert avail(load_doc(blob.replace("10.10", "13"))) == "macOS 13+"
+    ios_only = '{"platforms": [{"platform": "iOS", "introduced": 15.0}]}'
+    assert avail(load_doc(ios_only)) == "iOS 15.0+"
+    # float artifacts in Apple's data collapse to the intended version
+    assert avail(load_doc(blob.replace("10.10", "10.109999999999999"))) == "macOS 10.11+"
+    assert avail(load_doc(blob.replace("10.10", "16.399999999999999"))) == "macOS 16.4+"

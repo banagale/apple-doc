@@ -93,6 +93,18 @@ def check_asset(path: str) -> int:
         raise unreadable_asset(path, e) from e
 
 
+def _number_text(s: str) -> str:
+    """A JSON number as text, so versions print as Apple wrote them ("10.10", "15.0").
+
+    Apple's data also holds float artifacts such as 10.109999999999999 (meaning 10.11);
+    those are collapsed to the shortest decimal that round-trips.
+    """
+    whole, _, frac = s.partition(".")
+    if len(frac) >= 12 and "e" not in s.lower():
+        return repr(float(s))
+    return s
+
+
 def load_doc(blob) -> dict | None:
     """Parse one document row; None if it is not the JSON object Apple's asset stores.
 
@@ -100,7 +112,7 @@ def load_doc(blob) -> dict | None:
     unexpected row can't crash the build, search or --full.
     """
     try:
-        doc = json.loads(blob)
+        doc = json.loads(blob, parse_float=_number_text)
     except (ValueError, TypeError):  # includes UnicodeDecodeError
         return None
     if not isinstance(doc, dict):

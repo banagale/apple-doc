@@ -20,27 +20,36 @@ apple-doc NSTextView undo textDidChange -f AppKit
 apple-doc loadHTMLString baseURL relative -f WebKit
 # "Store a password securely"
 apple-doc Keychain SecItemAdd generic password
+# "My view's layer colours stay light in Dark Mode"
+apple-doc updateLayer performAsCurrentDrawingAppearance -f AppKit -n 2
 # "What does the HIG say about toolbars?"
 apple-doc toolbars -f "Human Interface Guidelines"
 # Read the one page that matters
 apple-doc --full '/documentation/WebKit/WKWebView/loadHTMLString(_:baseURL:)'
 ```
 
-**What it gets back.** The answer to the WKWebView question, from the live tool:
+**What it gets back.** The answer to the dark-mode question, from the live tool:
 
 ```console
-$ apple-doc loadHTMLString baseURL relative -f WebKit -n 1
-1. loadHTMLString(_:baseURL:)  [WebKit, Instance Method, macOS 10.1+]
-   Instance Method of WKWebView
-   Loads the contents of the specified HTML string and navigates to it.
-     func loadHTMLString(_ string: String, baseURL: URL?) -> WKNavigation?
-   `string`
-   `baseURL`
-   The base URL to use when the system resolves relative URLs within the HTML string.
-   Use this method to navigate to a webpage that you loaded or created yourself. For example, you might use this method to load HTML content that your app generates programmatically.
-   https://developer.apple.com/documentation/WebKit/WKWebView/loadHTMLString(_:baseURL:)
+$ apple-doc updateLayer performAsCurrentDrawingAppearance -f AppKit -n 2
+1. performAsCurrentDrawingAppearance(_:)  [AppKit, Instance Method, macOS 11+]
+   Instance Method of NSAppearance
+   Sets the appearance to be the active drawing appearance and perform the specified block.
+     func performAsCurrentDrawingAppearance(_ block: () -> Void)
+   The block to invoke after setting the appearance to be the current drawing appearance.
+   This method saves and restores the previous current appearance.
+   https://developer.apple.com/documentation/AppKit/NSAppearance/performAsCurrentDrawingAppearance(_:)
 
-(390 candidates, 0.02s; full page: apple-doc --full URI)
+2. updateLayer()  [AppKit, Instance Method, macOS 10.8+]
+   Instance Method of NSView
+   Updates the view’s content by modifying its underlying layer.
+     func updateLayer()
+   You use this method to optimize the rendering of your view in situations where you can represent your views contents entirely using a layer object. If your view’s `wantsUpdateLayer` property is `true`, the view calls thi...
+   When you want to update the contents of your layer, mark the view as dirty by setting its `needsDisplay` property to `true`. Doing so adds the view to the list of views that need to be refreshed during the next update cy...
+   This method supports automatic observation tracking. For more information, see Updating views automatically with observation tracking in AppKit.
+   https://developer.apple.com/documentation/AppKit/NSView/updateLayer()
+
+(400 candidates, 0.02s; full page: apple-doc --full URI)
 ```
 
 ## Set up your agent
@@ -261,7 +270,10 @@ directly.
   API, and a macOS or Xcode update can change them. Issue reports with `apple-doc --doctor`
   output help.
 - **Apple's docs, Apple's gaps.** Behaviour Apple doesn't document isn't in the corpus.
-- **Versions come from Apple's data as numbers,** so macOS 10.10 shows as `10.1`.
+- **Some versions are wrong in Apple's data.** Apple stores availability as JSON numbers, and
+  some macOS 10.10 introductions are stored as `10.1` (for example
+  `WKWebView.loadHTMLString(_:baseURL:)`). apple-doc prints versions as Apple wrote them, so
+  those show as `10.1+`.
 - **macOS only.** The documentation asset exists only on macOS.
 
 ## Prior art
