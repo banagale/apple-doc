@@ -36,7 +36,7 @@ DESCRIPTION = """\
 Look up Apple's developer documentation offline, in output sized for AI coding agents:
 API reference for every framework, declarations, availability, articles and the Human
 Interface Guidelines, read from the copy macOS downloads for Xcode. No network, no Xcode
-process, no MCP server: any agent with a shell can run it.
+process: any agent with a shell can run it, and --mcp serves clients that only take MCP.
 
 The search is keyword-based: pass API names and the words Apple's pages use, not sentences.
 Results prefer symbols available on macOS (see --any-platform). Put "--" before a query
