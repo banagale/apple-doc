@@ -137,14 +137,11 @@ def test_friendly_path_errors(home, tmp_path):
 
 
 def test_print_skill_with_stdout_closed(home):
+    # Close file descriptor 1 itself (not /dev/null) before Python starts.
     env = {**os.environ, "HOME": str(home)}
+    cmd = 'exec 1>&-; exec "$0" -m apple_doc --print-skill'
     r = subprocess.run(
-        [sys.executable, "-m", "apple_doc", "--print-skill"],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        close_fds=True,
+        ["/bin/sh", "-c", cmd, sys.executable], env=env, stderr=subprocess.PIPE, text=True
     )
     assert r.returncode == 0 and "Traceback" not in r.stderr
 

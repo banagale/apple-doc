@@ -9,6 +9,8 @@ import pytest
 
 from apple_doc.mcp import LEGACY_VERSIONS, MODERN_VERSIONS, TOOLS, Server, encode, handle_line
 
+CLIENT = {"name": "test", "version": "1"}
+
 MODERN_META = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
     "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "1"},
@@ -80,7 +82,14 @@ def test_initialize_negotiates_legacy_versions(env):
         ("1999-01-01", LEGACY_VERSIONS[0]),
         ("2026-07-28", LEGACY_VERSIONS[0]),
     ):
-        r = call(Server(), req(1, "initialize", {"protocolVersion": asked, "capabilities": {}}))
+        r = call(
+            Server(),
+            req(
+                1,
+                "initialize",
+                {"protocolVersion": asked, "capabilities": {}, "clientInfo": CLIENT},
+            ),
+        )
         res = r["result"]
         assert res["protocolVersion"] == got
         assert res["capabilities"] == {"tools": {"listChanged": False}}
@@ -162,7 +171,14 @@ def test_index_missing_and_stale_are_explained(tool, monkeypatch):
     for k in ("APPLE_DOC_ASSET_GLOB", "APPLE_DOC_INDEX"):
         monkeypatch.setenv(k, tool.env[k])
     s = Server()
-    call(s, req(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}}))
+    call(
+        s,
+        req(
+            1,
+            "initialize",
+            {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": CLIENT},
+        ),
+    )
     res = call(
         s, req(2, "tools/call", {"name": "search_apple_docs", "arguments": {"query": "beep"}})
     )["result"]
@@ -329,7 +345,20 @@ def test_round2_validation(env):
     e = call(s, req(2, "initialize", {"protocolVersion": "2025-11-25", "capabilities": []}))
     assert e["error"]["code"] == -32602
     assert call(s, req(3, "tools/list"))["error"]["code"] == -32602  # still no session
-    ok = call(s, req(4, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}}))
+    for bad in (
+        {"protocolVersion": "2025-11-25", "clientInfo": CLIENT},
+        {"protocolVersion": "2025-11-25", "capabilities": {}},
+        {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": 1}},
+    ):
+        assert call(s, req(3, "initialize", bad))["error"]["code"] == -32602
+    ok = call(
+        s,
+        req(
+            4,
+            "initialize",
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": CLIENT},
+        ),
+    )
     assert ok["result"]["protocolVersion"] == "2025-11-25"
     for args in ({"query": "x", "limit": None}, {"query": "x", "framework": None}, {"query": None}):
         res = tool(s, "search_apple_docs", args)
@@ -352,3 +381,10 @@ def test_overflowing_version_keeps_the_request_id(built):
     )
     reply = json.loads(r.stdout.splitlines()[0])
     assert reply["id"] == "overflow" and reply["error"]["code"] == -32022
+
+
+def test_arguments_may_be_omitted_but_not_null(legacy):
+    ok = call(legacy, req(1, "tools/call", {"name": "list_frameworks"}))
+    assert ok["result"]["isError"] is False
+    e = call(legacy, req(2, "tools/call", {"name": "list_frameworks", "arguments": None}))
+    assert e["error"]["code"] == -32602

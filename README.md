@@ -66,8 +66,8 @@ and how to turn a question into a query.
 apple-doc --install-skill        # ~/.claude/skills and/or ~/.agents/skills, whichever exist
 ```
 
-Restart the agent, then ask it about an Apple API, or call the skill directly with
-`/apple-doc <question>`. Use `--agent claude|codex|all` to choose, or `--dir SKILLS_DIR` for
+Restart the agent, then ask it about an Apple API, or call the skill directly: `/apple-doc
+<question>` in Claude Code, `$apple-doc <question>` in Codex. Use `--agent claude|codex|all` to choose, or `--dir SKILLS_DIR` for
 another agent's skills folder (it writes `SKILLS_DIR/apple-doc/SKILL.md`). It never overwrites a
 different `SKILL.md` without `--force`.
 

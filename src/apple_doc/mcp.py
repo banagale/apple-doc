@@ -308,8 +308,17 @@ class Server:
         requested = params.get("protocolVersion")
         if not isinstance(requested, str):
             raise RPCError(INVALID_PARAMS, "initialize needs a string 'protocolVersion'")
-        if not isinstance(params.get("capabilities", {}), dict):
-            raise RPCError(INVALID_PARAMS, "initialize 'capabilities' must be an object")
+        if not isinstance(params.get("capabilities"), dict):
+            raise RPCError(INVALID_PARAMS, "initialize needs 'capabilities' (an object)")
+        info = params.get("clientInfo")
+        if not (
+            isinstance(info, dict)
+            and isinstance(info.get("name"), str)
+            and isinstance(info.get("version"), str)
+        ):
+            raise RPCError(
+                INVALID_PARAMS, "initialize needs 'clientInfo' with string 'name' and 'version'"
+            )
         if requested in MODERN_VERSIONS:
             requested = LEGACY_VERSIONS[0]  # initialize is legacy-only; answer in legacy terms
         version = requested if requested in LEGACY_VERSIONS else LEGACY_VERSIONS[0]
@@ -360,9 +369,7 @@ class Server:
 
     def call_tool(self, params: dict) -> dict:
         name = params.get("name")
-        args = params.get("arguments", {})
-        if args is None:
-            args = {}
+        args = params.get("arguments", {})  # may be omitted, but not null
         if name is None:
             raise RPCError(INVALID_PARAMS, "tools/call needs 'name'")
         if not isinstance(name, str) or name not in HANDLERS:
