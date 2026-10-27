@@ -29,6 +29,8 @@ src/apple_doc/
   render.py   markdown cleanup, availability string, excerpt selection
   errors.py   exit codes and AppleDocError
   skill.py    --install-skill / --print-skill
+  mcp.py      --mcp: stdio MCP server (hand-written JSON-RPC, dual-era: 2026-07-28 per-request
+              _meta + server/discover, and the legacy initialize handshake)
   SKILL.md    the bundled agent skill (package data)
 skills/apple-doc/SKILL.md   copy of the bundled skill for GitHub readers; keep identical
 tests/        pytest; builds a fake asset DB in tmp_path, uses a temp HOME for skill installs
@@ -44,6 +46,7 @@ apple-doc --doctor              # check asset + index
 apple-doc --list-frameworks     # names --framework accepts
 apple-doc --install-skill [--agent claude|codex|all] [--dir PATH] [--force]
 apple-doc --print-skill
+apple-doc --mcp                 # MCP server over stdio
 ```
 
 Exit codes are part of the interface (documented in `--help` and the README):
@@ -67,6 +70,8 @@ uv tool install -e .            # local install for manual use
   asset with `APPLE_DOC_ASSET_GLOB` and at a temp index with `APPLE_DOC_INDEX` (see
   `tests/conftest.py`).
 - Tests that need the real asset are marked `@pytest.mark.real_asset` and skip when it is absent.
+- MCP: nothing but JSON-RPC messages may reach stdout in `--mcp` mode; tool problems are
+  `isError` results, protocol problems are JSON-RPC errors. `tests/test_mcp.py` drives both eras.
 - Never run `--install-skill` against your real `~/.claude` or `~/.agents` from tests; set `HOME`
   to a temp dir.
 - Run the CLI as a subprocess (`python -m apple_doc`) when the test is about exit codes or

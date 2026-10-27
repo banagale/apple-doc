@@ -42,6 +42,7 @@ apple-doc = "apple_doc.cli:main"
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.4.0",
+    "jsonschema>=4.20",
 ]
 
 [build-system]

@@ -281,7 +281,13 @@ def get_page(uri: str) -> Page:
                 row = _by_last_segment(docs, uri, given)
             except AppleDocError as e:
                 if "#" in uri:
-                    base = docs.execute(q + " COLLATE NOCASE", (uri.split("#")[0],)).fetchone()
+                    page = uri.split("#")[0]
+                    base = docs.execute(q + " COLLATE NOCASE", (page,)).fetchone()
+                    if not base:
+                        try:
+                            base = _by_last_segment(docs, page, page)
+                        except AppleDocError:
+                            base = None
                     if base:
                         anchors = page_sections(docs, base[0])
                         e.args = (

@@ -87,7 +87,8 @@ def make_parser() -> argparse.ArgumentParser:
         prog="apple-doc",
         usage="apple-doc [options] QUERY...\n"
         "       apple-doc --full URI | --build | --doctor | --list-frameworks\n"
-        "       apple-doc --install-skill [--agent claude|codex|all] [--dir PATH] [--force]",
+        "       apple-doc --install-skill [--agent claude|codex|all] [--dir PATH] [--force]\n"
+        "       apple-doc --mcp",
         description=DESCRIPTION,
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -179,6 +180,12 @@ def make_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--print-skill", action="store_true", help="print the agent skill (SKILL.md) to stdout"
     )
+    ap.add_argument(
+        "--mcp",
+        action="store_true",
+        help="run as an MCP server over stdio (tools: search_apple_docs, read_apple_doc, "
+        "list_frameworks), for clients that only take MCP",
+    )
     ap.add_argument("--version", "-V", action="version", version="%(prog)s " + __version__)
     return ap
 
@@ -232,24 +239,28 @@ def doctor() -> int:
 def run(argv: list[str] | None = None) -> int:
     ap = make_parser()
     a = ap.parse_args(argv)
-    names = ("build", "doctor", "list_frameworks", "install_skill", "print_skill")
+    names = ("build", "doctor", "list_frameworks", "install_skill", "print_skill", "mcp")
     modes = [m for m in names if getattr(a, m)]
     modes += ["full"] if a.full is not None else []
     modes = [m.replace("_", "-") for m in modes]
     if len(modes) > 1:
         ap.error(
             "choose one of --build, --doctor, --full, --list-frameworks, --install-skill, "
-            "--print-skill"
+            "--print-skill, --mcp"
         )
     if modes and a.query:
         ap.error("--%s takes no QUERY words (got: %s)" % (modes[0], " ".join(a.query)))
-    if a.json and (a.build or a.doctor or a.install_skill or a.print_skill):
+    if a.json and (a.build or a.doctor or a.install_skill or a.print_skill or a.mcp):
         ap.error("--json works with a search, --full or --list-frameworks")
     if not a.install_skill and (a.agent or a.dir is not None or a.force):
         ap.error("--agent, --dir and --force go with --install-skill")
     if a.print_skill:
         sys.stdout.write(skill_text())
         return OK
+    if a.mcp:
+        from apple_doc.mcp import serve
+
+        return serve()
     if a.install_skill:
         outcomes = [install(d, a.force) for d in target_dirs(a.agent, a.dir)]
         for o in outcomes:
