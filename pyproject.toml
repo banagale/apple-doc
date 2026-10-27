@@ -1,14 +1,17 @@
 [project]
 name = "apple-doc"
 version = "0.1.0"
-description = "Offline search of Apple's developer documentation from the copy macOS keeps on disk"
+description = "Apple developer docs for AI coding agents: an offline, bounded lookup of API declarations and availability from the copy macOS keeps on disk"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Rob Banagale"}
 ]
-keywords = ["apple", "documentation", "xcode", "macos", "cli", "offline", "ai-agents"]
+keywords = [
+    "ai-agents", "coding-agents", "claude-code", "codex", "agent-skills", "llm",
+    "apple", "xcode", "macos", "swift", "documentation", "offline", "cli",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -20,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Documentation",
     "Topic :: Software Development :: Documentation",
     "Topic :: Utilities",

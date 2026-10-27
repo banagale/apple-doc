@@ -1,4 +1,4 @@
-"""apple-doc command line: search, --full, --build, --doctor."""
+"""apple-doc command line: search, --full, --build, --doctor, --install-skill."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from apple_doc.errors import (
     ASSET_NOT_FOUND,
     INDEX_PROBLEM,
     NO_HITS,
+    NOT_INSTALLED,
     OK,
     AppleDocError,
 )
@@ -27,13 +28,15 @@ from apple_doc.index import (
     open_index,
 )
 from apple_doc.search import format_page, format_search, get_page, list_frameworks, search
+from apple_doc.skill import install, skill_text, target_dirs
 
 FULL_LINES = 80
 
 DESCRIPTION = """\
-Search Apple's developer documentation offline: API reference for every framework,
-declarations, availability, articles and the Human Interface Guidelines. Reads the copy of
-the documentation that macOS downloads for Xcode; no network, no Xcode process.
+Look up Apple's developer documentation offline, in output sized for AI coding agents:
+API reference for every framework, declarations, availability, articles and the Human
+Interface Guidelines, read from the copy macOS downloads for Xcode. No network, no Xcode
+process, no MCP server: any agent with a shell can run it.
 
 The search is keyword-based: pass API names and the words Apple's pages use, not sentences.
 Results prefer symbols available on macOS (see --any-platform). Put "--" before a query
@@ -42,6 +45,7 @@ that starts with "-", e.g. apple-doc -- -initWithFrame."""
 EPILOG = """\
 examples:
   apple-doc --build                                  build the index (once, and after updates)
+  apple-doc --install-skill                          give Claude Code / Codex the skill
   apple-doc NSTextView undo -f AppKit                class and member names work best
   apple-doc loadHTMLString baseURL relative -f WebKit -n 5
   apple-doc toolbars -f "Human Interface Guidelines"
@@ -54,6 +58,7 @@ exit codes:
   3  documentation asset not found or unreadable (Xcode has not downloaded it)
   4  index missing or unreadable (run apple-doc --build); --doctor also uses 4 for a stale index
   5  page not found (--full)
+  6  --install-skill left a file alone (different SKILL.md or a symlink; see --force)
 
 environment:
   APPLE_DOC_INDEX       index file (default ~/Library/Caches/apple-doc/fts.sqlite)
@@ -81,7 +86,8 @@ def make_parser() -> argparse.ArgumentParser:
     ap = Parser(
         prog="apple-doc",
         usage="apple-doc [options] QUERY...\n"
-        "       apple-doc --full URI | --build | --doctor | --list-frameworks",
+        "       apple-doc --full URI | --build | --doctor | --list-frameworks\n"
+        "       apple-doc --install-skill [--agent claude|codex|all] [--dir PATH] [--force]",
         description=DESCRIPTION,
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -148,6 +154,31 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="list the framework names --framework accepts, with page counts",
     )
+    ap.add_argument(
+        "--install-skill",
+        action="store_true",
+        help="install the agent skill (SKILL.md) for Claude Code (~/.claude/skills) and/or "
+        "Codex (~/.agents/skills); default: whichever of ~/.claude, ~/.agents exists",
+    )
+    ap.add_argument(
+        "--agent",
+        choices=["claude", "codex", "all"],
+        help="with --install-skill: which agent to install for",
+    )
+    ap.add_argument(
+        "--dir",
+        metavar="PATH",
+        help="with --install-skill: write SKILL.md into this folder instead "
+        "(another agent's skills dir)",
+    )
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="with --install-skill: replace a different SKILL.md, or write through a symlink",
+    )
+    ap.add_argument(
+        "--print-skill", action="store_true", help="print the agent skill (SKILL.md) to stdout"
+    )
     ap.add_argument("--version", "-V", action="version", version="%(prog)s " + __version__)
     return ap
 
@@ -201,15 +232,32 @@ def doctor() -> int:
 def run(argv: list[str] | None = None) -> int:
     ap = make_parser()
     a = ap.parse_args(argv)
-    modes = [m for m in ("build", "doctor", "list_frameworks") if getattr(a, m)]
+    names = ("build", "doctor", "list_frameworks", "install_skill", "print_skill")
+    modes = [m for m in names if getattr(a, m)]
     modes += ["full"] if a.full is not None else []
     modes = [m.replace("_", "-") for m in modes]
     if len(modes) > 1:
-        ap.error("choose one of --build, --doctor, --full, --list-frameworks")
+        ap.error(
+            "choose one of --build, --doctor, --full, --list-frameworks, --install-skill, "
+            "--print-skill"
+        )
     if modes and a.query:
         ap.error("--%s takes no QUERY words (got: %s)" % (modes[0], " ".join(a.query)))
-    if a.json and (a.build or a.doctor):
+    if a.json and (a.build or a.doctor or a.install_skill or a.print_skill):
         ap.error("--json works with a search, --full or --list-frameworks")
+    if not a.install_skill and (a.agent or a.dir or a.force):
+        ap.error("--agent, --dir and --force go with --install-skill")
+    if a.print_skill:
+        sys.stdout.write(skill_text())
+        return OK
+    if a.install_skill:
+        outcomes = [install(d, a.force) for d in target_dirs(a.agent, a.dir)]
+        for o in outcomes:
+            print(o.line())
+        if all(o.ok for o in outcomes):
+            print("apple-doc %s skill installed; restart the agent to pick it up." % __version__)
+            return OK
+        return NOT_INSTALLED
     if a.list_frameworks:
         rows = list_frameworks()
         if a.json:

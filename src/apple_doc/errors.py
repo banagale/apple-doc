@@ -6,6 +6,7 @@ USAGE = 2
 ASSET_NOT_FOUND = 3
 INDEX_PROBLEM = 4
 PAGE_NOT_FOUND = 5
+NOT_INSTALLED = 6
 
 
 class AppleDocError(Exception):

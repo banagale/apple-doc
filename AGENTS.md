@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-`apple-doc` is a single-command CLI that searches the copy of Apple's developer documentation
+`apple-doc` is an AI-agents-first, single-command CLI that searches the copy of Apple's developer documentation
 that macOS downloads for Xcode (a SQLite file under `/System/Library/AssetsV2/`). It keeps its
 own small FTS5 keyword index in `~/Library/Caches/apple-doc/` and reads page text back from
 Apple's database at query time. No network, no Xcode process, no sudo.
@@ -28,7 +28,10 @@ src/apple_doc/
   search.py   query terms, candidate query + re-ranking, --full page lookup
   render.py   markdown cleanup, availability string, excerpt selection
   errors.py   exit codes and AppleDocError
-tests/        pytest; builds a fake asset DB in tmp_path
+  skill.py    --install-skill / --print-skill
+  SKILL.md    the bundled agent skill (package data)
+skills/apple-doc/SKILL.md   copy of the bundled skill for GitHub readers; keep identical
+tests/        pytest; builds a fake asset DB in tmp_path, uses a temp HOME for skill installs
 ```
 
 ## CLI Structure
@@ -39,11 +42,13 @@ apple-doc --full URI [--json]   # one page or section
 apple-doc --build               # (re)build the keyword index
 apple-doc --doctor              # check asset + index
 apple-doc --list-frameworks     # names --framework accepts
+apple-doc --install-skill [--agent claude|codex|all] [--dir PATH] [--force]
+apple-doc --print-skill
 ```
 
 Exit codes are part of the interface (documented in `--help` and the README):
 0 ok, 1 no hits, 2 usage, 3 asset not found or unreadable, 4 index missing/unreadable (stale
-for `--doctor`), 5 page not found. Errors are one `apple-doc: ...` line on stderr, never a
+for `--doctor`), 5 page not found, 6 `--install-skill` left a file alone. Errors are one `apple-doc: ...` line on stderr, never a
 traceback. Keep them stable.
 
 ## Quick Commands
@@ -62,6 +67,8 @@ uv tool install -e .            # local install for manual use
   asset with `APPLE_DOC_ASSET_GLOB` and at a temp index with `APPLE_DOC_INDEX` (see
   `tests/conftest.py`).
 - Tests that need the real asset are marked `@pytest.mark.real_asset` and skip when it is absent.
+- Never run `--install-skill` against your real `~/.claude` or `~/.agents` from tests; set `HOME`
+  to a temp dir.
 - Run the CLI as a subprocess (`python -m apple_doc`) when the test is about exit codes or
   stdout/stderr.
 
