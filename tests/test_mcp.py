@@ -113,7 +113,10 @@ def test_modern_version_and_meta_errors(env):
     bad = dict(MODERN_META, **{"io.modelcontextprotocol/protocolVersion": "1900-01-01"})
     e = call(s, req(1, "tools/list", {"_meta": bad}))["error"]
     assert e["code"] == -32022 and e["data"]["requested"] == "1900-01-01"
-    assert "2026-07-28" in e["data"]["supported"]
+    assert e["data"]["supported"] == MODERN_VERSIONS
+    legacy_meta = dict(MODERN_META, **{"io.modelcontextprotocol/protocolVersion": "2025-06-18"})
+    e = call(s, req(4, "tools/list", {"_meta": legacy_meta}))["error"]
+    assert e["code"] == -32022 and "initialize" in e["message"]
     no_caps = {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
     assert call(s, req(2, "tools/list", {"_meta": no_caps}))["error"]["code"] == -32602
     e = call(s, req(3, "tools/list"))["error"]  # neither modern _meta nor initialize
@@ -136,7 +139,10 @@ def test_tool_errors_are_results_not_crashes(legacy):
     cases = [
         ("search_apple_docs", {"query": "x", "framework": "HIG"}, "list_frameworks shows all"),
         ("search_apple_docs", {"query": "x", "limit": 50}, "between 1 and 10"),
-        ("search_apple_docs", {"query": "x", "limit": True}, "must be a int"),
+        ("search_apple_docs", {"query": "x", "limit": True}, "must be an integer"),
+        ("search_apple_docs", {"query": "x", "limit": "3"}, "must be an integer"),
+        ("search_apple_docs", {"query": "x" * 3000}, "too long"),
+        ("search_apple_docs", {"query": "x", "framework": ""}, "'framework' needs a name"),
         ("search_apple_docs", {"query": ""}, "'query' is required"),
         ("search_apple_docs", {"query": "the of"}, "no searchable words"),
         ("search_apple_docs", {"query": "x", "bogus": 1}, "unknown argument(s): bogus"),
@@ -193,12 +199,18 @@ def test_protocol_errors(legacy):
     )
     assert handle_line(legacy, b'{"jsonrpc":"2.0","id":7,"result":{}}') is None
     assert handle_line(legacy, b"   ") is None
-    assert call(legacy, req(6, "ping"))["result"] == {"resultType": "complete"}
+    assert call(legacy, req(6, "ping"))["result"] == {}
+    assert call(legacy, req(7, "tools/call", {}))["error"]["message"] == "tools/call needs 'name'"
+    both = b'{"jsonrpc":"2.0","id":8,"method":"ping","result":{}}'
+    assert handle_line(legacy, both)["error"]["code"] == -32600
+    ok = tool(legacy, "search_apple_docs", {"query": "glimmerKey", "limit": 2.0})
+    assert ok["isError"] is False
 
 
 def test_encoded_messages_are_single_lines():
     line = encode({"jsonrpc": "2.0", "id": 1, "result": {"text": "a\nb c"}})
     assert line.count("\n") == 1 and line.endswith("\n")
+    assert len(line.splitlines()) == 1 and json.loads(line)["result"]["text"] == "a\nb\u2028c"
 
 
 def test_subprocess_session(built):

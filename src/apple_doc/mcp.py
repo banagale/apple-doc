@@ -152,7 +152,13 @@ _CLI_HINTS = [
     (re.compile(r"lower -n/--lines or raise --max-lines"), "lower 'limit'"),
     (re.compile(r"\(--json lists all\)"), ""),
     (re.compile(r"apple-doc --list-frameworks shows all"), "list_frameworks shows all"),
+    (
+        re.compile(r"--framework needs a name, e\.g\. -f AppKit"),
+        "'framework' needs a name, e.g. AppKit",
+    ),
+    (re.compile(r"--full needs a path"), "'path' needs a page path"),
 ]
+MAX_INPUT = 2000  # characters; longer queries or paths are mistakes, and get echoed in errors
 
 
 def _mcpify(text: str) -> str:
@@ -169,8 +175,13 @@ def _arg(args: dict, name: str, kind, default=None):
     value = args.get(name, default)
     if value is None:
         return default
+    if kind is int and isinstance(value, float) and value.is_integer():
+        value = int(value)
     if kind is int and isinstance(value, bool) or not isinstance(value, kind):
-        raise ToolInputError("'%s' must be a %s" % (name, kind.__name__))
+        noun = {int: "an integer", bool: "true or false", str: "a string"}[kind]
+        raise ToolInputError("'%s' must be %s" % (name, noun))
+    if kind is str and len(value) > MAX_INPUT:
+        raise ToolInputError("'%s' is too long (over %d characters)" % (name, MAX_INPUT))
     return value
 
 
@@ -231,8 +242,14 @@ class Server:
         has_id = "id" in msg
         req_id = msg.get("id")
         method = msg.get("method")
-        if "method" not in msg and ("result" in msg or "error" in msg):
-            return None  # a response from the client; this server sends no requests
+        if "result" in msg or "error" in msg:
+            if "method" not in msg:
+                return None  # a response from the client; this server sends no requests
+            return _error(
+                req_id if _valid_id(req_id) else None,
+                INVALID_REQUEST,
+                "a message can't carry both 'method' and 'result'/'error'",
+            )
         if msg.get("jsonrpc") != "2.0" or not isinstance(method, str):
             return _error(
                 req_id if _valid_id(req_id) else None,
@@ -307,18 +324,25 @@ class Server:
     def check_modern(self, meta: dict) -> None:
         version = meta.get(META_VERSION)
         if version not in MODERN_VERSIONS:
+            hint = (
+                " (%s is served through the initialize handshake)" % version
+                if version in LEGACY_VERSIONS
+                else ""
+            )
             raise RPCError(
                 UNSUPPORTED_VERSION,
-                "Unsupported protocol version",
-                {"supported": MODERN_VERSIONS + LEGACY_VERSIONS, "requested": version},
+                "Unsupported protocol version" + hint,
+                {"supported": MODERN_VERSIONS, "requested": version},
             )
-        if not isinstance(meta.get(META_CAPS), dict):
+        if META_CAPS not in meta:
             raise RPCError(INVALID_PARAMS, "missing _meta '%s'" % META_CAPS)
+        if not isinstance(meta[META_CAPS], dict):
+            raise RPCError(INVALID_PARAMS, "_meta '%s' must be an object" % META_CAPS)
 
     def complete(self, result: dict, modern: bool) -> dict:
         result = dict(result)
-        result["resultType"] = "complete"
-        if modern:
+        if modern:  # legacy revisions have no resultType or per-response _meta
+            result["resultType"] = "complete"
             result["_meta"] = {"io.modelcontextprotocol/serverInfo": SERVER_INFO}
         return result
 
@@ -327,6 +351,8 @@ class Server:
         args = params.get("arguments", {})
         if args is None:
             args = {}
+        if name is None:
+            raise RPCError(INVALID_PARAMS, "tools/call needs 'name'")
         if not isinstance(name, str) or name not in HANDLERS:
             raise RPCError(INVALID_PARAMS, "unknown tool: %s" % name)
         if not isinstance(args, dict):
@@ -361,7 +387,11 @@ def _error(req_id, code: int, message: str, data=None) -> dict:
 
 def encode(msg: dict) -> str:
     """One line of JSON: json.dumps escapes newlines inside strings, so framing holds."""
-    return json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n"
+    text = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
+    # Escape characters some readers treat as line breaks (str.splitlines, JavaScript).
+    for ch in ("\u2028", "\u2029", "\u0085"):
+        text = text.replace(ch, "\\u%04x" % ord(ch))
+    return text + "\n"
 
 
 def handle_line(server: Server, line: bytes) -> dict | None:
