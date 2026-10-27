@@ -1,5 +1,5 @@
 from apple_doc.index import camel_parts, ident_text
-from apple_doc.render import avail, clean
+from apple_doc.render import avail, clean, page_lines
 from apple_doc.search import query_terms
 
 
@@ -36,3 +36,16 @@ def test_avail_prefers_macos():
     }
     assert avail(doc) == "macOS 10.15+ (deprecated)"
     assert avail({"platforms": [{"platform": "iOS", "introduced": "2.0"}]}) == "iOS 2.0+"
+
+
+def test_page_lines_keep_code_indentation():
+    page = "Intro [link](x).\n```swift\nfunc f() {\n    g()  \n}\n```\n  Spaced   prose."
+    assert page_lines(page) == [
+        "Intro link.",
+        "```swift",
+        "func f() {",
+        "    g()",
+        "}",
+        "```",
+        "Spaced prose.",
+    ]

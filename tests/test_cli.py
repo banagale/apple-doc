@@ -58,8 +58,8 @@ def test_full_prints_80_lines_and_counts_the_rest(built):
     r = built("--full", "/documentation/AppKit/LongWidget")
     lines = r.stdout.splitlines()
     assert r.returncode == 0
-    assert len(lines) == 81 and lines[0] == "# LongWidget"
-    assert lines[-1] == "... (41 more lines)"
+    assert lines[0] == "# LongWidget" and lines[80] == "... (41 more lines)"
+    assert lines[81:] == ["", "availability: macOS 10.0+"]
 
 
 def test_full_accepts_web_url_and_any_case(built):
@@ -320,3 +320,16 @@ def test_misc_flag_hygiene(built):
     assert r.returncode == 2 and "non-ASCII" in r.stderr
     r = built("--", "-glimmerKey")
     assert r.returncode == 0 and "glimmerKey()" in r.stdout
+
+
+def test_full_lists_sections_and_suggests_anchors(built):
+    out = built("--full", "/documentation/AppKit/NSQuokkaView").stdout.splitlines()
+    i = out.index(
+        "1 section, each its own page: apple-doc --full '/documentation/AppKit/NSQuokkaView#ANCHOR'"
+    )
+    assert out[i + 1 :] == ["  #Overview"]  # link-list sections are not offered
+    assert "availability: macOS 10.0+" in out
+    data = built.json("--full", "/documentation/AppKit/NSQuokkaView")
+    assert data["sections"] == ["Overview"] and data["availability"] == "macOS 10.0+"
+    r = built("--full", "/documentation/AppKit/NSQuokkaView#Nope")
+    assert r.returncode == 5 and "its sections: #Overview" in r.stderr

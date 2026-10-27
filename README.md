@@ -152,13 +152,17 @@ parentheses as a glob. `--full` also accepts `http://` URLs, `?language=` suffix
 missing leading slash. If the exact path isn't found, it looks for a single page whose last
 segment matches, and lists the candidates when there are several.
 
+Apple stores each section of a long page or article as its own entry. `--full` on a page ends
+with its availability and a list of its section anchors. Open a section with
+`apple-doc --full '<page>#<anchor>'`. Code blocks keep their indentation.
+
 JSON output:
 
 - A search prints `{query, terms, candidates, seconds, stale_index, hits: [{rank, title,
   framework, role, availability, uri, url, excerpt, score}]}`. A search with no hits still
   prints this object, with `hits: []` and exit code 1. `--max-lines` doesn't apply.
-- `--full` prints `{uri, title, framework, lines}` with every line of the page, not just the
-  first 80.
+- `--full` prints `{uri, title, framework, lines, availability, sections}`. `lines` holds every
+  line of the page, not just the first 80, and `sections` lists the page's section anchors.
 - `--list-frameworks` prints `[{framework, pages}]`.
 - Errors are never JSON. They go to stderr as one `apple-doc: ...` line, so check the exit code
   before parsing stdout.

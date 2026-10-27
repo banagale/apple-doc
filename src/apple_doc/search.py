@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 
 from apple_doc.errors import PAGE_NOT_FOUND, USAGE, AppleDocError
-from apple_doc.index import asset_db, camel_parts, open_index, ro, unreadable_asset
+from apple_doc.index import SKIP_ANCHORS, asset_db, camel_parts, open_index, ro, unreadable_asset
 from apple_doc.render import WEB, avail, excerpt, page_lines
 
 STOP = set(
@@ -217,6 +217,22 @@ class Page:
     title: str
     framework: str
     lines: list[str]
+    availability: str = ""
+    sections: list[str] = field(default_factory=list)  # anchors of the page's sections
+
+
+SECTIONS_SHOWN = 40
+
+
+def page_sections(docs: sqlite3.Connection, page_uri: str) -> list[str]:
+    """Section anchors stored for a page (Apple keeps each section as its own row)."""
+    base = page_uri.split("#")[0]
+    rows = docs.execute(
+        "SELECT asset_id FROM documents WHERE asset_id > ? AND asset_id < ? ORDER BY rowid",
+        (base + "#", base + "$"),
+    ).fetchall()
+    anchors = [r[0].split("#", 1)[1] for r in rows]
+    return [a for a in anchors if a not in SKIP_ANCHORS]
 
 
 def normalize_uri(uri: str) -> str:
@@ -245,16 +261,30 @@ def get_page(uri: str) -> Page:
         if not row:
             row = docs.execute(q + " COLLATE NOCASE", (uri,)).fetchone()
         if not row:
-            row = _by_last_segment(docs, uri, given)
+            try:
+                row = _by_last_segment(docs, uri, given)
+            except AppleDocError as e:
+                if "#" in uri:
+                    base = docs.execute(q + " COLLATE NOCASE", (uri.split("#")[0],)).fetchone()
+                    if base:
+                        anchors = page_sections(docs, base[0])
+                        e.args = (
+                            "no section #%s on %s; its sections: %s"
+                            % (uri.split("#", 1)[1], base[0], " ".join("#" + a for a in anchors)),
+                        )
+                raise
+        doc = json.loads(row[1])
+        sections = [] if "#" in row[0] else page_sections(docs, row[0])
         docs.close()
     except sqlite3.Error as e:
         raise unreadable_asset(src, e) from e
-    doc = json.loads(row[1])
     return Page(
         uri=row[0],
         title=doc.get("title") or "",
         framework=doc.get("framework") or "",
         lines=page_lines(doc.get("content") or ""),
+        availability=avail(doc),
+        sections=sections,
     )
 
 
@@ -295,4 +325,18 @@ def format_page(page: Page, max_lines: int) -> str:
     out = page.lines[:max_lines]
     if len(page.lines) > max_lines:
         out.append("... (%d more lines)" % (len(page.lines) - max_lines))
+    if page.availability or page.sections:
+        out.append("")
+    if page.availability:
+        out.append("availability: " + page.availability)
+    if page.sections:
+        out.append(
+            "%d section%s, each its own page: apple-doc --full '%s#ANCHOR'"
+            % (len(page.sections), "" if len(page.sections) == 1 else "s", page.uri)
+        )
+        out.extend("  #" + a for a in page.sections[:SECTIONS_SHOWN])
+        if len(page.sections) > SECTIONS_SHOWN:
+            out.append(
+                "  ... and %d more (--json lists all)" % (len(page.sections) - SECTIONS_SHOWN)
+            )
     return "\n".join(out)

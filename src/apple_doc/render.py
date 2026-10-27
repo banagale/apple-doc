@@ -90,5 +90,12 @@ def excerpt(content: str, terms: list[str], maxlines: int) -> list[str]:
 
 
 def page_lines(content: str) -> list[str]:
-    """A whole page, links cleaned, code fences kept."""
-    return [clean(ln, cap=None) if not ln.startswith("```") else ln for ln in content.split("\n")]
+    """A whole page: prose lines cleaned, code blocks kept verbatim with their indentation."""
+    out, in_code = [], False
+    for ln in content.split("\n"):
+        if ln.startswith("```"):
+            in_code = not in_code
+            out.append(ln)
+        else:
+            out.append(ln.rstrip() if in_code else clean(ln, cap=None))
+    return out

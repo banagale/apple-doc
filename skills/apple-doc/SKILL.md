@@ -39,6 +39,8 @@ Apple's pages use before searching:
   paths you can pass to `--full`).
 - Narrow with `-f FRAMEWORK`. Results prefer macOS symbols; `--any-platform` turns that off.
   Cross-platform articles are often filed under UIKit or SwiftUI, so drop `-f` to find an article.
+- `--full` on a page ends with its section anchors; long articles keep their content in those
+  sections, so open the one you need with `--full '<page>#<anchor>'`.
 - Absence needs 2-3 materially different queries before you conclude a page doesn't exist.
 - Apple doesn't document everything. Undocumented behaviour needs a small probe program, not a guess.
 
