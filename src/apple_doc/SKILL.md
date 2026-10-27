@@ -48,8 +48,10 @@ the question into the class, method, notification and topic names Apple's pages 
 
 - `--json` gives `{hits: [{title, framework, availability, uri, url, excerpt, ...}]}` for a
   search, and `{lines, availability, sections}` for `--full`. Errors stay one line on stderr.
-- Exit codes: 0 ok, 1 no hits (rephrase), 2 usage (an unknown `-f` lists suggestions),
+- Exit codes: 0 hits (check they actually answer the question), 1 no hits (rephrase), 2 usage (an unknown `-f` lists suggestions),
   3 documentation asset missing, 4 index missing (run `apple-doc --build`), 5 page not found
   (the message suggests paths or sections).
 - A stderr line saying the documentation changed means: run `apple-doc --build` (seconds).
-  `apple-doc --doctor` checks the setup.
+  `apple-doc --doctor` checks the setup. If the command isn't found, the CLI isn't installed or
+  not on PATH: `uv tool install git+https://github.com/banagale/apple-doc`, then
+  `uv tool update-shell`.

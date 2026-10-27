@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 from dataclasses import dataclass
 from importlib.resources import files
@@ -38,7 +39,9 @@ class Outcome:
 
 def target_dirs(agent: str | None, directory: str | None) -> list[str]:
     """Skill directories to install into, from --agent / --dir or what exists in $HOME."""
-    if directory:
+    if directory is not None:
+        if not directory.strip():
+            raise AppleDocError("--dir needs a path", USAGE)
         if agent:
             raise AppleDocError("pass either --agent or --dir, not both", USAGE)
         return [os.path.abspath(os.path.expanduser(directory))]
@@ -57,29 +60,27 @@ def target_dirs(agent: str | None, directory: str | None) -> list[str]:
     return [os.path.join(os.path.expanduser(AGENTS[n][1]), SKILL_NAME) for n in names]
 
 
-def _symlink_in_path(path: str, stop: str) -> str | None:
-    """The first symlink among path and its parents below ``stop`` (e.g. $HOME), if any."""
-    stop = os.path.abspath(stop)
-    p = os.path.abspath(path)
-    while p not in (stop, os.path.dirname(p)):
-        if os.path.islink(p):
-            return p
-        p = os.path.dirname(p)
-    return None
+def _links(dest_dir: str, path: str) -> list[str]:
+    """Symlinks at the skill folder or SKILL.md itself (parents such as ~/.claude are yours)."""
+    return [p for p in (dest_dir, path) if os.path.islink(p)]
+
+
+def _why(e: OSError, dest_dir: str) -> str:
+    if any(
+        os.path.islink(p) and not os.path.exists(p) for p in (dest_dir, os.path.dirname(dest_dir))
+    ):
+        return "cannot write through a dangling symlink"
+    if e.errno in (errno.EEXIST, errno.ENOTDIR):
+        return "part of the path is a file, not a folder"
+    return "cannot write: %s" % e.strerror
 
 
 def install(dest_dir: str, force: bool = False) -> Outcome:
     text = skill_text()
+    dest_dir = dest_dir.rstrip(os.sep) or os.sep
     path = os.path.join(dest_dir, "SKILL.md")
-    home = os.path.expanduser("~")
-    link = _symlink_in_path(path, home if dest_dir.startswith(home) else os.path.dirname(dest_dir))
-    if link and not force:
-        return Outcome(
-            path,
-            "refused",
-            "%s is a symlink to %s; not writing through it. Update that copy yourself, "
-            "or rerun with --force" % (link, os.path.realpath(link)),
-        )
+    links = _links(dest_dir, path)
+    via = "through symlink %s -> %s" % (links[0], os.path.realpath(links[0])) if links else ""
     if os.path.isdir(path):
         return Outcome(path, "refused", "SKILL.md is a directory")
     existing = None
@@ -90,7 +91,16 @@ def install(dest_dir: str, force: bool = False) -> Outcome:
         except (OSError, UnicodeDecodeError):
             existing = ""
     if existing == text:
-        return Outcome(path, "unchanged", "already matches this version")
+        return Outcome(
+            path, "unchanged", "already matches this version" + (", " + via if via else "")
+        )
+    if links and not force:
+        return Outcome(
+            path,
+            "refused",
+            "%s is a symlink to %s; not writing through it. Update that copy yourself, "
+            "or rerun with --force" % (links[0], os.path.realpath(links[0])),
+        )
     if existing is not None and not force:
         return Outcome(path, "refused", "a different SKILL.md is there; rerun with --force")
     try:
@@ -98,5 +108,5 @@ def install(dest_dir: str, force: bool = False) -> Outcome:
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
     except OSError as e:
-        return Outcome(path, "refused", "cannot write: %s" % e)
-    return Outcome(path, "updated" if existing is not None else "wrote", "")
+        return Outcome(path, "refused", _why(e, dest_dir))
+    return Outcome(path, "updated" if existing is not None else "wrote", via)

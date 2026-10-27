@@ -45,18 +45,22 @@ $ apple-doc loadHTMLString baseURL relative -f WebKit -n 1
 
 ## Set up your agent
 
+You need a Mac with Apple's developer documentation on disk. Xcode downloads it; apple-doc is
+tested on macOS 27 with Xcode 27. Then:
+
 ```bash
 uv tool install git+https://github.com/banagale/apple-doc   # the CLI (Python 3.11+, no dependencies)
 apple-doc --build           # one-time keyword index of the on-disk docs, a few seconds
 apple-doc --install-skill   # skill for Claude Code (~/.claude/skills) and/or Codex (~/.agents/skills)
+apple-doc --doctor          # optional check: asset ok, index ok
 ```
 
-Restart the agent after installing the skill. Then ask it something about an Apple API. The
+Restart the agent after installing the skill, then ask it something about an Apple API. The
 skill tells the agent when to reach for `apple-doc` and how to phrase queries.
 
-**Requirements:** a Mac with Apple's developer documentation downloaded. Xcode downloads it;
-apple-doc is tested on macOS 27 with Xcode 27. If `apple-doc --build` reports the asset missing,
-see [Getting the documentation](#getting-the-documentation).
+- **`apple-doc: command not found`?** uv's tool folder isn't on your PATH yet. Run
+  `uv tool update-shell` and open a new shell. Agents need the command on their PATH too.
+- **Asset missing (exit 3)?** See [Getting the documentation](#getting-the-documentation).
 
 `--install-skill` installs for whichever of `~/.claude` and `~/.agents` exists. Use
 `--agent claude|codex|all` to choose, or `--dir PATH` for another agent's skills folder. It
@@ -65,7 +69,7 @@ unless you pass `--force`. The skill ships inside the package, so it always matc
 installed version. Run `apple-doc --print-skill` to see it or pipe it elsewhere.
 
 For an agent without skills (Cursor rules, a local model's system prompt, any `AGENTS.md` or
-`CLAUDE.md`), paste this:
+`CLAUDE.md`), paste the output of `apple-doc --print-skill`, or this short version:
 
 ```markdown
 Before relying on how an Apple API behaves, check it with `apple-doc` (offline Apple docs).
@@ -117,10 +121,11 @@ fast, local keyword index. apple-doc applies the same split to Apple's documenta
   including headless runs, CI jobs and local models. There is nothing to configure or keep
   running.
 - **Offline and fast.** No network, no API keys, no Xcode process; about 0.05 s per query.
-- **Exit codes an agent can branch on.** 0 hits, 1 no hits (rephrase), 2 usage (an unknown `-f`
+- **Exit codes an agent can branch on.** 0 success, 1 no hits (rephrase), 2 usage (an unknown `-f`
   lists suggestions), 3 documentation missing, 4 index missing (run `--build`), 5 page not found
   (the message lists candidate paths or sections), 6 `--install-skill` left a file alone. Errors
-  are always one line on stderr.
+  are always one line on stderr. Exit 0 means there were hits, not that they are relevant: the
+  agent still reads them and rephrases when they miss.
 - **`--json`** for scripts and tool wrappers.
   - A search prints `{query, terms, candidates, seconds, stale_index, hits: [{rank, title,
     framework, role, availability, uri, url, excerpt, score}]}`. With no hits it still prints

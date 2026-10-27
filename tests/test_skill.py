@@ -97,14 +97,54 @@ def test_symlinked_skill_dir_is_left_alone_without_force(home, tmp_path):
     assert r.returncode == 0 and (checkout / "SKILL.md").read_text() == BUNDLED
 
 
-def test_symlinked_skills_parent_is_detected(home, tmp_path):
+def test_symlinked_skills_parent_is_followed(home, tmp_path):
+    # ~/.claude/skills symlinked into the user's own dotfiles is their setup: write there.
     real = tmp_path / "dotfiles/skills"
     real.mkdir(parents=True)
     (home / ".claude").mkdir()
     (home / ".claude/skills").symlink_to(real)
     r = run(home, "--install-skill", "--agent", "claude")
-    assert r.returncode == 6 and "symlink" in r.stdout
-    assert not (real / "apple-doc").exists()
+    assert r.returncode == 0 and (real / "apple-doc/SKILL.md").read_text() == BUNDLED
+
+
+def test_symlinked_skill_that_already_matches_is_unchanged(home, tmp_path):
+    checkout = tmp_path / "repo/apple-doc"
+    checkout.mkdir(parents=True)
+    (checkout / "SKILL.md").write_text(BUNDLED)
+    (home / ".agents/skills").mkdir(parents=True)
+    (home / ".agents/skills/apple-doc").symlink_to(checkout)
+    r = run(home, "--install-skill", "--agent", "codex")
+    assert r.returncode == 0 and "unchanged:" in r.stdout and "through symlink" in r.stdout
+
+
+def test_force_through_symlink_says_so(home, tmp_path):
+    checkout = tmp_path / "repo/apple-doc"
+    checkout.mkdir(parents=True)
+    (home / ".agents/skills").mkdir(parents=True)
+    (home / ".agents/skills/apple-doc").symlink_to(checkout)
+    r = run(home, "--install-skill", "--agent", "codex", "--force")
+    assert r.returncode == 0 and "through symlink" in r.stdout
+
+
+def test_friendly_path_errors(home, tmp_path):
+    f = tmp_path / "afile"
+    f.write_text("x")
+    r = run(home, "--install-skill", "--dir", str(f / "sub"))
+    assert r.returncode == 6 and "is a file, not a folder" in r.stdout
+    assert run(home, "--install-skill", "--dir", "").returncode == 2
+
+
+def test_print_skill_with_stdout_closed(home):
+    env = {**os.environ, "HOME": str(home)}
+    r = subprocess.run(
+        [sys.executable, "-m", "apple_doc", "--print-skill"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        close_fds=True,
+    )
+    assert r.returncode == 0 and "Traceback" not in r.stderr
 
 
 def test_install_flags_need_install_skill(home):

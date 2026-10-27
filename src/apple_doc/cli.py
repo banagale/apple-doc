@@ -245,7 +245,7 @@ def run(argv: list[str] | None = None) -> int:
         ap.error("--%s takes no QUERY words (got: %s)" % (modes[0], " ".join(a.query)))
     if a.json and (a.build or a.doctor or a.install_skill or a.print_skill):
         ap.error("--json works with a search, --full or --list-frameworks")
-    if not a.install_skill and (a.agent or a.dir or a.force):
+    if not a.install_skill and (a.agent or a.dir is not None or a.force):
         ap.error("--agent, --dir and --force go with --install-skill")
     if a.print_skill:
         sys.stdout.write(skill_text())
@@ -299,6 +299,8 @@ def run(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.stdout is None:  # stdout closed (e.g. `apple-doc ... >&-`)
+        sys.stdout = open(os.devnull, "w")
     try:
         return run(argv)
     except AppleDocError as e:
