@@ -280,7 +280,8 @@ def open_index() -> tuple[sqlite3.Connection, IndexState]:
     path = index_path()
     if not os.path.exists(path):
         raise AppleDocError(
-            "no index yet; run `apple-doc --build` once (seconds to a few minutes, offline).",
+            "no index yet at %s; run `apple-doc --build` once (seconds to a few minutes, "
+            "offline), or point APPLE_DOC_INDEX at an existing index." % path,
             INDEX_PROBLEM,
         )
     if os.path.isdir(path):

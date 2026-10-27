@@ -121,6 +121,11 @@ def test_modern_version_and_meta_errors(env):
 
 
 def test_read_section_and_frameworks(legacy):
+    page = tool(legacy, "read_apple_doc", {"path": "NSQuokkaView"})["content"][0]["text"]
+    assert "read_apple_doc(path='/documentation/AppKit/NSQuokkaView', section=ANCHOR)" in page
+    assert "apple-doc --full" not in page
+    hit = tool(legacy, "search_apple_docs", {"query": "glimmerKey"})["content"][0]["text"]
+    assert hit.endswith("full page: read_apple_doc(path))")
     res = tool(legacy, "read_apple_doc", {"path": "NSQuokkaView", "section": "Overview"})
     assert res["content"][0]["text"].startswith("## Overview")
     res = tool(legacy, "list_frameworks", {})
@@ -129,7 +134,7 @@ def test_read_section_and_frameworks(legacy):
 
 def test_tool_errors_are_results_not_crashes(legacy):
     cases = [
-        ("search_apple_docs", {"query": "x", "framework": "HIG"}, "unknown framework"),
+        ("search_apple_docs", {"query": "x", "framework": "HIG"}, "list_frameworks shows all"),
         ("search_apple_docs", {"query": "x", "limit": 50}, "between 1 and 10"),
         ("search_apple_docs", {"query": "x", "limit": True}, "must be a int"),
         ("search_apple_docs", {"query": ""}, "'query' is required"),

@@ -14,6 +14,7 @@ written to stdout; the one log line goes to stderr.
 from __future__ import annotations
 
 import json
+import re
 import sys
 
 from apple_doc import __version__
@@ -141,8 +142,27 @@ class ToolInputError(Exception):
     """Bad arguments a model can fix: reported as a tool result with isError."""
 
 
+_CLI_HINTS = [
+    # The shared renderers speak CLI; an MCP-only model has no shell.
+    (re.compile(r"full page: apple-doc --full URI"), "full page: read_apple_doc(path)"),
+    (
+        re.compile(r"apple-doc --full '([^'#]+)#ANCHOR'"),
+        r"read_apple_doc(path='\1', section=ANCHOR)",
+    ),
+    (re.compile(r"lower -n/--lines or raise --max-lines"), "lower 'limit'"),
+    (re.compile(r"\(--json lists all\)"), ""),
+    (re.compile(r"apple-doc --list-frameworks shows all"), "list_frameworks shows all"),
+]
+
+
+def _mcpify(text: str) -> str:
+    for rx, repl in _CLI_HINTS:
+        text = rx.sub(repl, text)
+    return text
+
+
 def _text(text: str, is_error: bool = False) -> dict:
-    return {"content": [{"type": "text", "text": text}], "isError": is_error}
+    return {"content": [{"type": "text", "text": _mcpify(text)}], "isError": is_error}
 
 
 def _arg(args: dict, name: str, kind, default=None):
