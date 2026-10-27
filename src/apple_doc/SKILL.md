@@ -7,7 +7,7 @@ description: "Look up Apple's developer documentation offline: API reference for
 
 Don't guess how an Apple API behaves, and don't invent members. Run `apple-doc` first. It searches
 the copy of Apple's documentation that macOS keeps on disk: no network, about 0.05 s per query,
-and the output is capped at 60 lines so it fits in your context. Each hit gives the title,
+and the output is capped at 60 lines by default so it fits in your context. Each hit gives the title,
 framework, macOS availability, the declaration, the lines that best match, and the page path.
 
 ```bash
@@ -49,8 +49,8 @@ the question into the class, method, notification and topic names Apple's pages 
 ## Scripting, exit codes, upkeep
 
 - `--json` gives `{hits: [{title, framework, availability, uri, url, excerpt, ...}]}` for a
-  search, and `{lines, availability, sections}` for `--full`. Errors (including usage errors) are one
-  `apple-doc: ...` line on stderr.
+  search, and `{lines, availability, sections}` for `--full`. Search, lookup and usage errors are
+  one `apple-doc: ...` line on stderr.
 - Exit codes: 0 success (hits: check they answer the question), 1 no hits (rephrase), 2 usage
   (an unknown `-f` lists suggestions), 3 documentation asset missing or unreadable, 4 index
   missing or unreadable (run `apple-doc --build`), 5 page not found (the message suggests paths

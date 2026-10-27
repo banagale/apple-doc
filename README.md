@@ -154,10 +154,11 @@ between an agent that understands and a fast keyword index comes from
 
 ## Reference
 
-Output is bounded: 3 hits by default and at most 60 lines for a text search. `--full` prints one
+Output is bounded: 3 hits and at most 60 lines for a text search by default (`-n`, `--max-lines`). `--full` prints one
 page or section, up to 80 lines of content followed by its availability and section anchors.
 `--json` returns the same search results as structured data, and the whole page for `--full`.
-Run `apple-doc --help` for every flag. Errors are one line on stderr.
+Run `apple-doc --help` for every flag. Search, lookup and usage errors are one line on stderr;
+`--doctor` and `--install-skill` report on stdout.
 
 | Exit | Meaning | Exit | Meaning |
 | ---- | ------- | ---- | ------- |

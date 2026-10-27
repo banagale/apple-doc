@@ -320,3 +320,35 @@ def test_malformed_messages_never_stop_the_server(built):
     ids = [m.get("id") for m in replies]
     for i in range(len(bad_lines)):
         assert "ok%d" % i in ids, (i, ids)
+
+
+def test_round2_validation(env):
+    s = Server()
+    e = call(s, req(1, "initialize"))["error"]
+    assert e["code"] == -32602 and "protocolVersion" in e["message"]
+    e = call(s, req(2, "initialize", {"protocolVersion": "2025-11-25", "capabilities": []}))
+    assert e["error"]["code"] == -32602
+    assert call(s, req(3, "tools/list"))["error"]["code"] == -32602  # still no session
+    ok = call(s, req(4, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}}))
+    assert ok["result"]["protocolVersion"] == "2025-11-25"
+    for args in ({"query": "x", "limit": None}, {"query": "x", "framework": None}, {"query": None}):
+        res = tool(s, "search_apple_docs", args)
+        assert res["isError"] is True, args
+
+
+def test_overflowing_version_keeps_the_request_id(built):
+    line = (
+        '{"jsonrpc":"2.0","id":"overflow","method":"tools/list","params":{"_meta":'
+        '{"io.modelcontextprotocol/protocolVersion":1e400,'
+        '"io.modelcontextprotocol/clientCapabilities":{}}}}\n'
+    )
+    r = subprocess.run(
+        [sys.executable, "-m", "apple_doc", "--mcp"],
+        input=line,
+        env=built.env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    reply = json.loads(r.stdout.splitlines()[0])
+    assert reply["id"] == "overflow" and reply["error"]["code"] == -32022

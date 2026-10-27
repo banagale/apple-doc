@@ -492,3 +492,21 @@ def test_unexpected_meta_values_do_not_crash(built):
     db.close()
     r = built("glimmerKey")
     assert r.returncode == 0 and "Traceback" not in r.stderr
+
+
+def test_index_and_asset_paths_with_uri_characters(tmp_path):
+    from tests.conftest import Tool
+
+    odd = tmp_path / "we#ird?dir %41"
+    odd.mkdir()
+    t = Tool(odd)
+    assert t("--build").returncode == 0
+    r = t("glimmerKey")
+    assert r.returncode == 0 and "glimmerKey()" in r.stdout
+    assert t("--doctor").returncode == 0
+
+
+def test_full_accepts_percent_encoded_urls(built):
+    url = "https://developer.apple.com/documentation/WebKit/WKWebView/loadHTMLString%28_%3AbaseURL%3A%29"
+    r = built("--full", url)
+    assert r.returncode == 0 and "resolves relative URLs" in r.stdout

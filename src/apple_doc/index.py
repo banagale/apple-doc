@@ -16,6 +16,7 @@ import sqlite3
 import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from apple_doc.errors import ASSET_NOT_FOUND, INDEX_PROBLEM, AppleDocError
 
@@ -69,7 +70,9 @@ def asset_db() -> str:
 
 def ro(path: str) -> sqlite3.Connection:
     """Open a SQLite file read-only without creating journals next to it."""
-    return sqlite3.connect("file:%s?mode=ro&immutable=1" % path, uri=True)
+    # as_uri() percent-encodes '#', '?' and '%' so SQLite can't misread the filename.
+    uri = Path(os.path.abspath(path)).as_uri() + "?mode=ro&immutable=1"
+    return sqlite3.connect(uri, uri=True)
 
 
 def unreadable_asset(path: str, err: Exception) -> AppleDocError:

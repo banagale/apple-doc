@@ -8,6 +8,7 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from urllib.parse import unquote
 
 from apple_doc.errors import ASSET_NOT_FOUND, INDEX_PROBLEM, PAGE_NOT_FOUND, USAGE, AppleDocError
 from apple_doc.index import (
@@ -264,6 +265,7 @@ def normalize_uri(uri: str) -> str:
     uri = re.sub(r"^https?://(www\.)?developer\.apple\.com", "", uri, flags=re.I)
     uri = re.sub(r"\?[^#]*", "", uri)  # ?language=objc and the like
     path, sep, frag = uri.partition("#")
+    path, frag = unquote(path), unquote(frag)  # copied URLs encode ( ) : and spaces
     path = path.rstrip("/")
     if path and not path.startswith("/"):
         path = "/" + path

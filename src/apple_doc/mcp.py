@@ -172,9 +172,9 @@ def _text(text: str, is_error: bool = False) -> dict:
 
 
 def _arg(args: dict, name: str, kind, default=None):
-    value = args.get(name, default)
-    if value is None:
+    if name not in args:
         return default
+    value = args[name]  # an explicit null is a type error, as the schema says
     if kind is int and isinstance(value, float) and value.is_integer():
         value = int(value)
     if kind is int and isinstance(value, bool) or not isinstance(value, kind):
@@ -306,6 +306,10 @@ class Server:
 
     def initialize(self, params: dict) -> dict:
         requested = params.get("protocolVersion")
+        if not isinstance(requested, str):
+            raise RPCError(INVALID_PARAMS, "initialize needs a string 'protocolVersion'")
+        if not isinstance(params.get("capabilities", {}), dict):
+            raise RPCError(INVALID_PARAMS, "initialize 'capabilities' must be an object")
         if requested in MODERN_VERSIONS:
             requested = LEGACY_VERSIONS[0]  # initialize is legacy-only; answer in legacy terms
         version = requested if requested in LEGACY_VERSIONS else LEGACY_VERSIONS[0]
@@ -337,7 +341,10 @@ class Server:
             raise RPCError(
                 UNSUPPORTED_VERSION,
                 "Unsupported protocol version" + hint,
-                {"supported": MODERN_VERSIONS, "requested": version},
+                {
+                    "supported": MODERN_VERSIONS,
+                    "requested": version if isinstance(version, str) else repr(version),
+                },
             )
         if META_CAPS not in meta:
             raise RPCError(INVALID_PARAMS, "missing _meta '%s'" % META_CAPS)
@@ -404,7 +411,7 @@ def encode(msg: dict) -> str:
         if not _valid_id(req_id):
             req_id = None
         fallback = _error(None, INTERNAL_ERROR, "could not encode the response: %s" % e)
-        fallback["id"] = req_id if isinstance(req_id, int) else None
+        fallback["id"] = req_id
         text = json.dumps(fallback, ensure_ascii=True)
     return text + "\n"
 
