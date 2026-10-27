@@ -67,9 +67,11 @@ def test_agent_flag_creates_missing_dirs(home):
 
 
 def test_dir_flag(home, tmp_path):
-    target = tmp_path / "cursor/skills/apple-doc"
-    r = run(home, "--install-skill", "--dir", str(target))
+    skills = tmp_path / "myagent/skills"
+    target = skills / "apple-doc"
+    r = run(home, "--install-skill", "--dir", str(skills))
     assert r.returncode == 0 and (target / "SKILL.md").read_text() == BUNDLED
+    assert str(target / "SKILL.md") in r.stdout and not (skills / "SKILL.md").exists()
     assert run(home, "--install-skill", "--dir", str(target), "--agent", "claude").returncode == 2
 
 

@@ -44,7 +44,8 @@ def target_dirs(agent: str | None, directory: str | None) -> list[str]:
             raise AppleDocError("--dir needs a path", USAGE)
         if agent:
             raise AppleDocError("pass either --agent or --dir, not both", USAGE)
-        return [os.path.abspath(os.path.expanduser(directory))]
+        # --dir names the agent's skills folder; the skill gets its own apple-doc/ inside it.
+        return [os.path.join(os.path.abspath(os.path.expanduser(directory)), SKILL_NAME)]
     if agent in AGENTS:
         names = [agent]
     elif agent == "all":

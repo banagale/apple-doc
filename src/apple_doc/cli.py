@@ -79,7 +79,8 @@ class Parser(argparse.ArgumentParser):
     def error(self, message: str):
         if "unrecognized arguments: -" in message:
             message += ' (put "--" before a query that starts with "-")'
-        super().error(message)
+        # One line, like every other apple-doc error; the full usage is in --help.
+        self.exit(2, "%s: error: %s (see %s --help)\n" % (self.prog, message, self.prog))
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -87,7 +88,7 @@ def make_parser() -> argparse.ArgumentParser:
         prog="apple-doc",
         usage="apple-doc [options] QUERY...\n"
         "       apple-doc --full URI | --build | --doctor | --list-frameworks\n"
-        "       apple-doc --install-skill [--agent claude|codex|all] [--dir PATH] [--force]\n"
+        "       apple-doc --install-skill [--agent claude|codex|all] [--dir SKILLS_DIR] [--force]\n"
         "       apple-doc --mcp",
         description=DESCRIPTION,
         epilog=EPILOG,
@@ -168,9 +169,9 @@ def make_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--dir",
-        metavar="PATH",
-        help="with --install-skill: write SKILL.md into this folder instead "
-        "(another agent's skills dir)",
+        metavar="SKILLS_DIR",
+        help="with --install-skill: another agent's skills folder; writes "
+        "SKILLS_DIR/apple-doc/SKILL.md",
     )
     ap.add_argument(
         "--force",
@@ -290,7 +291,10 @@ def run(argv: list[str] | None = None) -> int:
             print(format_page(page, FULL_LINES))
         return OK
     if not a.query:
-        ap.error("QUERY required (or one of --build, --doctor, --full URI, --list-frameworks)")
+        ap.error(
+            "QUERY required (or a mode: --build, --doctor, --full URI, --list-frameworks, "
+            "--install-skill, --mcp)"
+        )
     res = search(" ".join(a.query), a.framework, a.limit, a.lines, a.any_platform)
     if res.stale:
         print(REBUILD_HINT, file=sys.stderr)

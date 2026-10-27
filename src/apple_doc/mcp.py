@@ -279,13 +279,18 @@ class Server:
             return self.initialize(params)
         meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
         modern = META_VERSION in meta
+        if modern:
+            self.check_modern(meta)  # every modern request, discover and ping included
         if method == "server/discover":
+            if not modern:
+                raise RPCError(
+                    INVALID_PARAMS,
+                    "server/discover needs _meta '%s' and '%s'" % (META_VERSION, META_CAPS),
+                )
             return self.discover()
         if method == "ping":
-            return self.complete({}, modern)
-        if modern:
-            self.check_modern(meta)
-        elif self.legacy_version is None:
+            return self.complete({}, modern)  # legacy ping works with or without initialize
+        if not modern and self.legacy_version is None:
             raise RPCError(
                 INVALID_PARAMS,
                 "missing _meta '%s' (protocol %s), or send initialize first (protocol %s)"
@@ -386,12 +391,26 @@ def _error(req_id, code: int, message: str, data=None) -> dict:
 
 
 def encode(msg: dict) -> str:
-    """One line of JSON: json.dumps escapes newlines inside strings, so framing holds."""
-    text = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
-    # Escape characters some readers treat as line breaks (str.splitlines, JavaScript).
-    for ch in ("\u2028", "\u2029", "\u0085"):
-        text = text.replace(ch, "\\u%04x" % ord(ch))
+    """One line of ASCII JSON.
+
+    ensure_ascii escapes every non-ASCII character, so the line is valid UTF-8 even when a
+    request echoed a lone surrogate, and characters some readers treat as line breaks
+    (U+2028, U+2029, U+0085) can't split a message. allow_nan=False keeps NaN/Infinity out.
+    """
+    try:
+        text = json.dumps(msg, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+    except (TypeError, ValueError, RecursionError) as e:
+        req_id = msg.get("id") if isinstance(msg, dict) else None
+        if not _valid_id(req_id):
+            req_id = None
+        fallback = _error(None, INTERNAL_ERROR, "could not encode the response: %s" % e)
+        fallback["id"] = req_id if isinstance(req_id, int) else None
+        text = json.dumps(fallback, ensure_ascii=True)
     return text + "\n"
+
+
+def _reject_constant(name: str):
+    raise ValueError("%s is not valid JSON" % name)
 
 
 def handle_line(server: Server, line: bytes) -> dict | None:
@@ -399,10 +418,19 @@ def handle_line(server: Server, line: bytes) -> dict | None:
     if not line:
         return None
     try:
-        msg = json.loads(line.decode("utf-8"))
+        msg = json.loads(line.decode("utf-8"), parse_constant=_reject_constant)
     except (UnicodeDecodeError, ValueError) as e:
         return _error(None, PARSE_ERROR, "parse error: %s" % e)
-    return server.handle(msg)
+    except RecursionError:
+        return _error(None, PARSE_ERROR, "parse error: JSON nested too deeply")
+    try:
+        return server.handle(msg)
+    except RecursionError:
+        return _error(None, INVALID_REQUEST, "request nested too deeply")
+    except Exception as e:  # last resort: answer and keep serving
+        log("unexpected error: %r" % e)
+        req_id = msg.get("id") if isinstance(msg, dict) else None
+        return _error(req_id if _valid_id(req_id) else None, INTERNAL_ERROR, "internal error")
 
 
 def serve(stdin=None, stdout=None) -> int:
@@ -417,6 +445,9 @@ def serve(stdin=None, stdout=None) -> int:
     for line in stdin:
         reply = handle_line(server, line)
         if reply is not None:
-            stdout.write(encode(reply))
-            stdout.flush()
+            try:
+                stdout.write(encode(reply))
+                stdout.flush()
+            except (BrokenPipeError, OSError):
+                return 0  # the client went away
     return 0

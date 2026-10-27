@@ -39,8 +39,8 @@ No network, no API key, no Xcode running; about 0.05 s per query. Also runs as a
 ## Install
 
 ```bash
-uv tool install git+https://github.com/banagale/apple-doc   # Python 3.11+, no dependencies
-apple-doc --build                                           # one-time keyword index, a few seconds
+uv tool install git+https://github.com/banagale/apple-doc@v0.1.0   # Python 3.11+, no dependencies
+apple-doc --build                                                  # one-time keyword index, a few seconds
 ```
 
 Needs a Mac with Apple's documentation on disk. Xcode downloads it; tested on macOS 27 with
@@ -67,8 +67,9 @@ apple-doc --install-skill        # ~/.claude/skills and/or ~/.agents/skills, whi
 ```
 
 Restart the agent, then ask it about an Apple API, or call the skill directly with
-`/apple-doc <question>`. Use `--agent claude|codex|all` to choose, or `--dir PATH` for another
-agent's skills folder. It never overwrites a different `SKILL.md` without `--force`.
+`/apple-doc <question>`. Use `--agent claude|codex|all` to choose, or `--dir SKILLS_DIR` for
+another agent's skills folder (it writes `SKILLS_DIR/apple-doc/SKILL.md`). It never overwrites a
+different `SKILL.md` without `--force`.
 
 **Clients that only take MCP: run `apple-doc --mcp`**, a stdio server with three tools,
 `search_apple_docs`, `read_apple_doc` and `list_frameworks`.
@@ -79,9 +80,11 @@ codex mcp add apple-doc -- apple-doc --mcp                   # Codex
 ```
 
 <details>
-<summary>Cursor, VS Code, Claude Desktop, Windsurf and other MCP clients</summary>
+<summary>Cursor, VS Code, Claude Desktop, Devin Desktop, Windsurf and other MCP clients</summary>
 <p>Most clients take this block: <code>~/.cursor/mcp.json</code>, Claude Desktop's
-<code>~/Library/Application Support/Claude/claude_desktop_config.json</code>, and Windsurf's
+<code>~/Library/Application Support/Claude/claude_desktop_config.json</code>, Devin Desktop's
+<code>~/.config/devin/mcp_config.json</code> (for its Cascade agent, per
+<a href="https://docs.devin.ai/desktop/cascade/mcp">Devin's docs</a>), and legacy Windsurf's
 <code>~/.codeium/windsurf/mcp_config.json</code>.</p>
 <pre lang="json"><code>{
   "mcpServers": {
@@ -151,16 +154,17 @@ between an agent that understands and a fast keyword index comes from
 
 ## Reference
 
-Output is bounded: 3 hits by default, at most 60 lines per search, one page or section (80 lines)
-for `--full`. `--json` gives the same results as structured data. Run `apple-doc --help` for every
-flag.
+Output is bounded: 3 hits by default and at most 60 lines for a text search. `--full` prints one
+page or section, up to 80 lines of content followed by its availability and section anchors.
+`--json` returns the same search results as structured data, and the whole page for `--full`.
+Run `apple-doc --help` for every flag. Errors are one line on stderr.
 
 | Exit | Meaning | Exit | Meaning |
 | ---- | ------- | ---- | ------- |
-| 0 | hits (still check they answer the question) | 4 | index missing: run `--build` |
+| 0 | success (still check hits answer the question) | 4 | index missing or unreadable: run `--build`; also a stale index under `--doctor` |
 | 1 | no hits: rephrase | 5 | `--full` page not found (suggests paths) |
 | 2 | usage error (an unknown `-f` lists suggestions) | 6 | `--install-skill` left a file alone |
-| 3 | documentation asset missing | | |
+| 3 | documentation asset missing or unreadable | | |
 
 ## Getting the documentation
 
@@ -176,6 +180,12 @@ Recent Xcode releases keep about 263,000 documentation pages as a SQLite databas
 to `~/Library/Caches/apple-doc/`; searches rank against Apple's own text, macOS first. Apple's file
 is opened read-only, with no network and no sudo. Delete the cache folder to undo.
 
+## Limitations
+
+Availability is Apple's data as stored in the asset. A few macOS 10.10 APIs are stored as `10.1`
+(WKWebView's `loadHTMLString(_:baseURL:)`, for one), so verify a version that looks wrong, for
+example against the SDK headers. apple-doc doesn't reinterpret `10.1`.
+
 ## Development
 
 ```bash
@@ -187,7 +197,7 @@ Issues and pull requests are welcome.
 
 ## Not affiliated with Apple
 
-An independent project, not affiliated with or endorsed by Apple Inc. It ships no Apple content: it reads the documentation your own Mac downloaded. Apple, Xcode and macOS are trademarks of Apple Inc.
+An independent project, not affiliated with or endorsed by Apple Inc. It doesn't bundle or redistribute Apple's documentation: it reads the copy your own Mac downloaded. The tests quote a few short excerpts as fixtures. Apple, Xcode and macOS are trademarks of Apple Inc.
 
 ## About
 

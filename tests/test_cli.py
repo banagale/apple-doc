@@ -1,6 +1,8 @@
 import json
 import os
 
+import pytest
+
 from apple_doc import __version__
 from tests.conftest import INDEXED
 
@@ -448,3 +450,45 @@ def test_doctor_flags_an_empty_asset(tool):
     env = _asset_with_rows(tool, [])
     r = tool("--doctor", env=env)
     assert r.returncode == 3 and "asset:   EMPTY" in r.stdout
+
+
+# --- damaged index metadata (final review) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "UPDATE info SET v='abc' WHERE k='docs'",
+        "DROP TABLE meta",
+        "DELETE FROM info WHERE k='source'",
+        "DROP TABLE info",
+        "ALTER TABLE meta RENAME COLUMN macos TO mac",
+    ],
+)
+def test_damaged_index_is_exit_4(built, damage):
+    import sqlite3
+
+    db = sqlite3.connect(built.index)
+    db.execute(damage)
+    db.commit()
+    db.close()
+    for args in (
+        ["glimmerKey"],
+        ["glimmerKey", "-f", "AppKit"],
+        ["--list-frameworks"],
+        ["--doctor"],
+    ):
+        r = built(*args)
+        assert r.returncode == 4, (damage, args, r.stdout, r.stderr)
+        assert "Traceback" not in r.stderr
+
+
+def test_unexpected_meta_values_do_not_crash(built):
+    import sqlite3
+
+    db = sqlite3.connect(built.index)
+    db.execute("UPDATE meta SET macos = 7")
+    db.commit()
+    db.close()
+    r = built("glimmerKey")
+    assert r.returncode == 0 and "Traceback" not in r.stderr

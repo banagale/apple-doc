@@ -292,16 +292,25 @@ def open_index() -> tuple[sqlite3.Connection, IndexState]:
     try:
         idx = ro(path)
         info = dict(idx.execute("SELECT k, v FROM info").fetchall())
-    except sqlite3.Error as e:
-        raise AppleDocError(
-            "index at %s is unreadable (%s); run `apple-doc --build`." % (path, e),
-            INDEX_PROBLEM,
-        ) from e
+        # The tables search needs, so a damaged index fails here with one clear message.
+        idx.execute("SELECT id, uri, framework, type, macos FROM meta LIMIT 1").fetchall()
+        idx.execute("SELECT rowid FROM fts LIMIT 0").fetchall()
+        docs = int(info.get("docs") or 0)
+        if not isinstance(info.get("source"), str) or not info["source"]:
+            raise ValueError("no source asset recorded")
+    except (sqlite3.Error, ValueError, TypeError) as e:
+        raise index_unreadable(path, e) from e
     state = IndexState(
         path=path,
-        source=info.get("source", ""),
-        mtime=info.get("mtime", ""),
-        docs=int(info.get("docs") or 0),
+        source=info["source"],
+        mtime=str(info.get("mtime", "")),
+        docs=docs,
         current=newest_asset(),
     )
     return idx, state
+
+
+def index_unreadable(path: str, err: Exception) -> AppleDocError:
+    return AppleDocError(
+        "index at %s is unreadable (%s); run `apple-doc --build`." % (path, err), INDEX_PROBLEM
+    )

@@ -271,3 +271,52 @@ def test_mcp_flag_conflicts(built):
     assert built("--mcp", "query").returncode == 2
     assert built("--mcp", "--json").returncode == 2
     assert built("--mcp", "--build").returncode == 2
+
+
+def test_discover_and_ping_validate_modern_meta(env):
+    s = Server()
+    bad = dict(MODERN_META, **{"io.modelcontextprotocol/protocolVersion": "1900-01-01"})
+    for method in ("server/discover", "ping"):
+        e = call(s, req(1, method, {"_meta": bad}))["error"]
+        assert e["code"] == -32022 and e["data"]["requested"] == "1900-01-01"
+        no_caps = {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
+        assert call(s, req(2, method, {"_meta": no_caps}))["error"]["code"] == -32602
+        ok = call(s, req(3, method, {"_meta": MODERN_META}))["result"]
+        assert ok["resultType"] == "complete"
+    assert call(s, req(4, "server/discover"))["error"]["code"] == -32602
+    assert call(s, req(5, "ping"))["result"] == {}  # legacy ping, even before initialize
+
+
+def test_malformed_messages_never_stop_the_server(built):
+    nested = "[" * 100000 + "]" * 100000
+    bad_lines = [
+        '{"jsonrpc":"2.0","id":1,"method":"ping","params":{"x":NaN}}',
+        '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":'
+        '{"io.modelcontextprotocol/protocolVersion":Infinity}}}',
+        '{"jsonrpc":"2.0","id":"\\udc80","method":"ping"}',
+        '{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"search_apple_docs",'
+        '"arguments":{"query":"\\ud800 glimmerKey"}}}',
+        '{"jsonrpc":"2.0","id":2,"method":"ping","params":' + nested + "}",
+        nested,
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_apple_docs",'
+        '"arguments":{"query":' + nested + "}}}",
+        "\ud800 garbage",
+    ]
+    stdin = ""
+    for i, bad in enumerate(bad_lines):
+        stdin += bad + "\n" + json.dumps(req("ok%d" % i, "ping")) + "\n"
+    r = subprocess.run(
+        [sys.executable, "-m", "apple_doc", "--mcp"],
+        input=stdin.encode("utf-8", "surrogatepass"),
+        env=built.env,
+        capture_output=True,
+        timeout=60,
+    )
+    assert r.returncode == 0
+    assert b"Traceback" not in r.stderr
+    out = r.stdout.decode("utf-8")  # strictly valid UTF-8
+    replies = [json.loads(ln) for ln in out.splitlines()]
+    assert all(ln.isascii() for ln in out.splitlines())
+    ids = [m.get("id") for m in replies]
+    for i in range(len(bad_lines)):
+        assert "ok%d" % i in ids, (i, ids)

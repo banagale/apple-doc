@@ -14,6 +14,7 @@ from apple_doc.index import (
     SKIP_ANCHORS,
     asset_db,
     camel_parts,
+    index_unreadable,
     load_doc,
     open_index,
     ro,
@@ -85,7 +86,11 @@ def search(
         )
     idx, state = open_index()
     if framework is not None:
-        framework = resolve_framework(idx, framework)
+        try:
+            framework = resolve_framework(idx, framework)
+        except sqlite3.Error as e:
+            idx.close()
+            raise index_unreadable(state.path, e) from e
     src = state.source if os.path.exists(state.source) else asset_db()
     try:
         return _search(
@@ -136,7 +141,7 @@ def _search(idx, src, state, query, words, terms, framework, limit, lines, any_p
             score += 3.0  # the page itself before its sections
         score += sum(1.5 for w in wl if "/" + w in path)
         if not any_platform:
-            score += {1: 1.0, 0: -4.0, 2: 0.0}[macos]
+            score += {1: 1.0, 0: -4.0, 2: 0.0}.get(macos, 0.0)
         if typ == "topic":
             score -= 1.0
         ranked.append((score, uri, fw, doc))
@@ -168,12 +173,14 @@ def _search(idx, src, state, query, words, terms, framework, limit, lines, any_p
 
 def list_frameworks() -> list[tuple[str, int]]:
     """Framework names in the index with their document counts."""
-    idx, _ = open_index()
+    idx, state = open_index()
     try:
         return idx.execute(
             "SELECT framework, count(*) FROM meta WHERE framework <> '' "
             "GROUP BY framework COLLATE NOCASE ORDER BY framework COLLATE NOCASE"
         ).fetchall()
+    except sqlite3.Error as e:
+        raise index_unreadable(state.path, e) from e
     finally:
         idx.close()
 

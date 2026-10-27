@@ -14,8 +14,8 @@ Design commitments that changes must keep:
 - **Zero runtime dependencies.** Python 3.11+ standard library only (argparse, sqlite3, json).
   Do not add click, rich or anything else to `dependencies`.
 - **Read-only on Apple's asset.** Open it with `mode=ro&immutable=1`; never write next to it.
-- **Ships no Apple content.** Tests and fixtures use invented pages, never text copied from the
-  real asset.
+- **Doesn't redistribute Apple's documentation.** The package reads the user's own copy. Test
+  fixtures may quote a few short excerpts; keep them short and don't add bulk Apple text.
 - **Small, ranked output.** Results are sized for an AI agent's context window: default 3 hits,
   60-line cap. Ranking changes need a test that shows the intended order.
 
@@ -79,8 +79,8 @@ uv tool install -e .            # local install for manual use
 
 ## Fixture and Content Hygiene
 
-Use role placeholders in docs, tests and fixtures: `/path/to/x`, `user@example.test`, invented
-framework pages. No personal paths, machine names, internal hostnames or tracker IDs.
+Use role placeholders in docs, tests and fixtures: `/path/to/x`, `user@example.test`, short
+fixture pages. No personal paths, machine names, internal hostnames or tracker IDs.
 
 ## Commit Guidelines
 

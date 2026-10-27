@@ -43,14 +43,18 @@ the question into the class, method, notification and topic names Apple's pages 
 - Absence needs 2-3 materially different queries before you conclude a page doesn't exist.
 - Apple doesn't document everything. For undocumented behaviour, say so and suggest a small probe
   program; don't present a guess as documented.
+- Availability is Apple's data as stored. A few macOS 10.10 APIs are stored as `10.1`, so check a
+  version that looks wrong (for example against the SDK headers) before relying on it.
 
 ## Scripting, exit codes, upkeep
 
 - `--json` gives `{hits: [{title, framework, availability, uri, url, excerpt, ...}]}` for a
-  search, and `{lines, availability, sections}` for `--full`. Errors stay one line on stderr.
-- Exit codes: 0 hits (check they actually answer the question), 1 no hits (rephrase), 2 usage (an unknown `-f` lists suggestions),
-  3 documentation asset missing, 4 index missing (run `apple-doc --build`), 5 page not found
-  (the message suggests paths or sections).
+  search, and `{lines, availability, sections}` for `--full`. Errors (including usage errors) are one
+  `apple-doc: ...` line on stderr.
+- Exit codes: 0 success (hits: check they answer the question), 1 no hits (rephrase), 2 usage
+  (an unknown `-f` lists suggestions), 3 documentation asset missing or unreadable, 4 index
+  missing or unreadable (run `apple-doc --build`), 5 page not found (the message suggests paths
+  or sections).
 - A stderr line saying the documentation changed means: run `apple-doc --build` (seconds).
   `apple-doc --doctor` checks the setup. If the command isn't found, the CLI isn't installed or
   not on PATH: `uv tool install git+https://github.com/banagale/apple-doc`, then
