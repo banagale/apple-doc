@@ -20,11 +20,12 @@ from apple_doc.index import (
     REBUILD_HINT,
     asset_glob,
     build,
+    check_asset,
     index_path,
     newest_asset,
     open_index,
 )
-from apple_doc.search import format_page, format_search, get_page, search
+from apple_doc.search import format_page, format_search, get_page, list_frameworks, search
 
 FULL_LINES = 80
 
@@ -34,20 +35,22 @@ declarations, availability, articles and the Human Interface Guidelines. Reads t
 the documentation that macOS downloads for Xcode; no network, no Xcode process.
 
 The search is keyword-based: pass API names and the words Apple's pages use, not sentences.
-Results prefer symbols available on macOS (see --any-platform)."""
+Results prefer symbols available on macOS (see --any-platform). Put "--" before a query
+that starts with "-", e.g. apple-doc -- -initWithFrame."""
 
 EPILOG = """\
 examples:
   apple-doc --build                                  build the index (once, and after updates)
   apple-doc NSTextView undo -f AppKit                class and member names work best
   apple-doc loadHTMLString baseURL relative -f WebKit -n 5
-  apple-doc toolbars -f "Human Interface Guidelines" --any-platform
+  apple-doc toolbars -f "Human Interface Guidelines"
   apple-doc --full '/documentation/AppKit/NSResponder/noResponder(for:)'  (quote it)
   apple-doc --json NSWindow becomeKey | jq '.hits[].uri'
 
 exit codes:
-  0  success            1  no hits             2  usage error (bad flags, empty query)
-  3  documentation asset not found (Xcode has not downloaded it)
+  0  success            1  no hits             2  usage error (bad flags, empty query,
+                                                    unknown --framework)
+  3  documentation asset not found or unreadable (Xcode has not downloaded it)
   4  index missing or unreadable (run apple-doc --build); --doctor also uses 4 for a stale index
   5  page not found (--full)
 
@@ -69,10 +72,12 @@ def positive_int(value: str) -> int:
 def make_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="apple-doc",
-        usage="apple-doc [options] QUERY...\n       apple-doc --full URI | --build | --doctor",
+        usage="apple-doc [options] QUERY...\n"
+        "       apple-doc --full URI | --build | --doctor | --list-frameworks",
         description=DESCRIPTION,
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
     )
     ap.add_argument("query", nargs="*", metavar="QUERY", help="API names and topic words")
     ap.add_argument(
@@ -80,7 +85,7 @@ def make_parser() -> argparse.ArgumentParser:
         "-f",
         metavar="NAME",
         help="restrict to one framework, e.g. AppKit, WebKit, Foundation, SwiftUI, "
-        '"Human Interface Guidelines" (case-insensitive)',
+        '"Human Interface Guidelines" (case-insensitive; see --list-frameworks)',
     )
     ap.add_argument(
         "--limit",
@@ -95,7 +100,7 @@ def make_parser() -> argparse.ArgumentParser:
         type=positive_int,
         default=4,
         metavar="N",
-        help="matching body lines per hit (default 4)",
+        help="matching body lines per hit, shown after its summary and declaration (default 4)",
     )
     ap.add_argument(
         "--any-platform", action="store_true", help="do not prefer macOS-available symbols"
@@ -105,16 +110,19 @@ def make_parser() -> argparse.ArgumentParser:
         type=positive_int,
         default=60,
         metavar="N",
-        help="cap on total output lines for a search (default 60)",
+        help="cap on total output lines for a text search (default 60)",
     )
     ap.add_argument(
         "--full",
         metavar="URI",
-        help="print one whole page or section (first %d lines); URI is the "
-        "/documentation/... path or developer.apple.com URL shown under a hit" % FULL_LINES,
+        help="print one whole page or section (first %d lines); URI is the path "
+        "(/documentation/... or /design/...) or developer.apple.com URL shown under a hit"
+        % FULL_LINES,
     )
     ap.add_argument(
-        "--json", action="store_true", help="machine-readable output for a search or --full"
+        "--json",
+        action="store_true",
+        help="JSON output for a search, --full (whole page) or --list-frameworks",
     )
     ap.add_argument(
         "--build",
@@ -127,7 +135,12 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="check the documentation asset and the index, then exit",
     )
-    ap.add_argument("--version", action="version", version="%(prog)s " + __version__)
+    ap.add_argument(
+        "--list-frameworks",
+        action="store_true",
+        help="list the framework names --framework accepts, with page counts",
+    )
+    ap.add_argument("--version", "-V", action="version", version="%(prog)s " + __version__)
     return ap
 
 
@@ -135,7 +148,12 @@ def doctor() -> int:
     code = OK
     asset = newest_asset()
     if asset:
-        print("asset:   ok     %s" % asset)
+        try:
+            n = check_asset(asset)
+            print("asset:   ok     %s (%d documents)" % (asset, n))
+        except AppleDocError as e:
+            print("asset:   UNREADABLE  %s" % e)
+            code = ASSET_NOT_FOUND
     else:
         print("asset:   MISSING  nothing matches %s" % asset_glob())
         print("         Open Xcode and let it finish downloading its components, then rerun.")
@@ -162,17 +180,29 @@ def doctor() -> int:
 def run(argv: list[str] | None = None) -> int:
     ap = make_parser()
     a = ap.parse_args(argv)
-    modes = [m for m in ("build", "doctor") if getattr(a, m)] + (["full"] if a.full else [])
+    modes = [m for m in ("build", "doctor", "list_frameworks") if getattr(a, m)]
+    modes += ["full"] if a.full is not None else []
+    modes = [m.replace("_", "-") for m in modes]
     if len(modes) > 1:
-        ap.error("choose one of --build, --doctor, --full")
+        ap.error("choose one of --build, --doctor, --full, --list-frameworks")
     if modes and a.query:
         ap.error("--%s takes no QUERY words (got: %s)" % (modes[0], " ".join(a.query)))
+    if a.json and (a.build or a.doctor):
+        ap.error("--json works with a search, --full or --list-frameworks")
+    if a.list_frameworks:
+        rows = list_frameworks()
+        if a.json:
+            print(json.dumps([{"framework": f, "pages": n} for f, n in rows], indent=2))
+        else:
+            for f, n in rows:
+                print("%7d  %s" % (n, f))
+        return OK
     if a.build:
         print(build())
         return OK
     if a.doctor:
         return doctor()
-    if a.full:
+    if a.full is not None:
         page = get_page(a.full)
         if a.json:
             print(json.dumps(asdict(page), indent=2))
@@ -180,7 +210,7 @@ def run(argv: list[str] | None = None) -> int:
             print(format_page(page, FULL_LINES))
         return OK
     if not a.query:
-        ap.error("QUERY required (or one of --build, --doctor, --full URI)")
+        ap.error("QUERY required (or one of --build, --doctor, --full URI, --list-frameworks)")
     res = search(" ".join(a.query), a.framework, a.limit, a.lines, a.any_platform)
     if res.stale:
         print(REBUILD_HINT, file=sys.stderr)

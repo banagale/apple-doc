@@ -226,3 +226,97 @@ def test_build_replaces_existing_index(built):
     first = json.loads(built("--json", "noResponderFor").stdout)
     assert "indexed %d docs" % INDEXED in built("--build").stdout
     assert json.loads(built("--json", "noResponderFor").stdout)["hits"] == first["hits"]
+
+
+# --- release QA fixes ----------------------------------------------------------------------
+
+
+def test_article_references_print_as_openable_paths(built):
+    out = built("glow", "customization", "-f", "AppKit").stdout
+    assert "`/documentation/UIKit/glowing-in-the-dark`" in out
+    full = built("--full", "/documentation/AppKit/glow-customization#Glow").stdout
+    assert "`/documentation/UIKit/glowing-in-the-dark`" in full
+    assert "See `NSQuokkaView`." in full  # symbol references stay short
+
+
+def test_full_resolves_a_unique_last_segment(built):
+    for given in ("glowing-in-the-dark", "/documentation/AppKit/glowing-in-the-dark"):
+        r = built("--full", given)
+        assert r.returncode == 0 and r.stdout.startswith("# Glowing in the dark"), given
+
+
+def test_full_lists_candidates_when_last_segment_is_ambiguous(built):
+    r = built("--full", "init")
+    assert r.returncode == 5
+    assert "2 pages end that way" in r.stderr
+    assert "/documentation/AppKit/NSQuokkaView/init" in r.stderr
+
+
+def test_full_normalizes_urls(built):
+    for given in (
+        "http://developer.apple.com/documentation/AppKit/NSQuokkaView?language=objc",
+        "documentation/AppKit/NSQuokkaView/",
+        "https://developer.apple.com/documentation/appkit/nsquokkaview#overview",
+    ):
+        r = built("--full", given)
+        assert r.returncode == 0 and "NSQuokkaView" in r.stdout, given
+
+
+def test_full_does_not_cut_long_lines_but_excerpts_do(built):
+    full = built("--full", "/documentation/UIKit/glowing-in-the-dark").stdout
+    assert max(len(ln) for ln in full.splitlines()) > 300 and "..." not in full
+    out = built("glowing", "glow", "paragraph", "--any-platform").stdout
+    assert any(ln.endswith("...") and len(ln) <= 230 for ln in out.splitlines())
+
+
+def test_capped_output_says_so(built):
+    out = built("sprocket", "-n", "40", "--max-lines", "7").stdout.splitlines()
+    assert len(out) == 7 and out[-1].startswith("... (output capped at 7 lines")
+
+
+def test_unknown_framework_is_a_usage_error_with_hints(built):
+    r = built("glimmerKey", "-f", "App")
+    assert r.returncode == 2 and "unknown framework 'App'" in r.stderr and "AppKit" in r.stderr
+    r = built("glimmerKey", "-f", "")
+    assert r.returncode == 2 and "needs a name" in r.stderr
+
+
+def test_list_frameworks(built):
+    r = built("--list-frameworks")
+    assert r.returncode == 0
+    names = [ln.split(None, 1)[1] for ln in r.stdout.splitlines()]
+    assert names == ["AppKit", "Foundation", "UIKit", "WebKit"]
+    data = built.json("--list-frameworks")
+    assert {"framework": "Foundation", "pages": 40} in data
+
+
+def test_junk_asset_fails_cleanly(tool):
+    junk = tool.root / "j.asset/AssetData/documentation-db/index.sql"
+    junk.parent.mkdir(parents=True)
+    junk.write_text("not a database")
+    env = dict(tool.env, APPLE_DOC_ASSET_GLOB=str(junk))
+    for args in (["--build"], ["--full", "/documentation/AppKit/NSView"], ["--doctor"]):
+        r = tool(*args, env=env)
+        assert r.returncode == 3, (args, r.stderr)
+        assert "Traceback" not in r.stderr
+    assert "unreadable" in tool("--build", env=env).stderr
+    assert not os.path.exists(str(tool.index) + ".tmp")
+    assert "asset:   UNREADABLE" in tool("--doctor", env=env).stdout
+
+
+def test_index_path_that_is_a_directory(tool):
+    tool.index.mkdir(parents=True)
+    r = tool("beep")
+    assert r.returncode == 4 and "is a directory" in r.stderr
+
+
+def test_misc_flag_hygiene(built):
+    assert built("-V").stdout.strip() == "apple-doc 0.1.0"
+    assert built("--lim", "2", "x").returncode == 2  # no prefix abbreviations
+    assert built("--json", "--doctor").returncode == 2
+    r = built("--full", "")
+    assert r.returncode == 2 and "--full needs a path" in r.stderr
+    r = built("日本語")
+    assert r.returncode == 2 and "non-ASCII" in r.stderr
+    r = built("--", "-glimmerKey")
+    assert r.returncode == 0 and "glimmerKey()" in r.stdout

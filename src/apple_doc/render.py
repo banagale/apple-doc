@@ -13,15 +13,27 @@ def _swift_name(m: re.Match) -> str:
     return "`%s`" % (seg if m.group(1).lstrip().startswith(("-", "+")) else m.group(1))
 
 
-def clean(line: str) -> str:
-    """Strip markdown links down to their symbol names and cap the line at 220 chars."""
+# An article slug ("supporting-dark-mode-in-your-interface") as opposed to a symbol name.
+_ARTICLE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
+
+
+def _doc_ref(m: re.Match) -> str:
+    """`Name` for a symbol reference, the openable path for an article reference."""
+    path, name = m.group(1), m.group(2)
+    return "`%s`" % (path if _ARTICLE.match(name) else name)
+
+
+def clean(line: str, cap: int | None = 220) -> str:
+    """Strip markdown links down to their symbol names; cap the line at ``cap`` chars."""
     line = re.sub(r"\[`([^`]+)`\]\((/documentation/\S+?)\)(?=$|\s|[,.;:])", _swift_name, line)
     line = re.sub(r"\[`([^`]+)`\]\([^)]*\)", r"`\1`", line)
     line = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", line)
-    line = re.sub(r"<doc://[^>]*/([^/>]+)>", r"`\1`", line)
-    line = re.sub(r"``doc://[^`]*/([^/`]+)``", r"`\1`", line)
+    line = re.sub(r"<doc://[^/>]*((?:/[^/>]+)*/([^/>]+))>", _doc_ref, line)
+    line = re.sub(r"``doc://[^/`]*((?:/[^/`]+)*/([^/`]+))``", _doc_ref, line)
     line = re.sub(r"\s{2,}", " ", line.strip())
-    return line[:220] + ("..." if len(line) > 220 else "")
+    if cap is None or len(line) <= cap:
+        return line
+    return line[:cap] + "..."
 
 
 def avail(doc: dict) -> str:
@@ -79,4 +91,4 @@ def excerpt(content: str, terms: list[str], maxlines: int) -> list[str]:
 
 def page_lines(content: str) -> list[str]:
     """A whole page, links cleaned, code fences kept."""
-    return [clean(ln) if not ln.startswith("```") else ln for ln in content.split("\n")]
+    return [clean(ln, cap=None) if not ln.startswith("```") else ln for ln in content.split("\n")]

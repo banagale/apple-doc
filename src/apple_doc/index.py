@@ -71,6 +71,26 @@ def ro(path: str) -> sqlite3.Connection:
     return sqlite3.connect("file:%s?mode=ro&immutable=1" % path, uri=True)
 
 
+def unreadable_asset(path: str, err: Exception) -> AppleDocError:
+    return AppleDocError(
+        "documentation asset at %s is unreadable (%s); expected Apple's documentation-db "
+        "SQLite file. Check APPLE_DOC_ASSET_GLOB or run `apple-doc --doctor`." % (path, err),
+        ASSET_NOT_FOUND,
+    )
+
+
+def check_asset(path: str) -> int:
+    """Number of documents in the asset; raises AppleDocError if it is not a usable database."""
+    try:
+        db = ro(path)
+        try:
+            return db.execute("SELECT count(*) FROM documents").fetchone()[0]
+        finally:
+            db.close()
+    except sqlite3.Error as e:
+        raise unreadable_asset(path, e) from e
+
+
 def camel_parts(s: str) -> list[str]:
     return re.findall(r"[A-Z]+(?=[A-Z][a-z]|\d|\b)|[A-Z]?[a-z]+|[A-Z]+|\d+", s)
 
@@ -103,7 +123,32 @@ def build() -> str:
     if os.path.exists(tmp):
         os.remove(tmp)
     t0 = time.time()
-    s, d = ro(src), sqlite3.connect(tmp)
+    try:
+        n = _write_index(src, tmp)
+    except BaseException as e:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        if isinstance(e, sqlite3.Error):
+            raise AppleDocError("index build failed (%s)" % e, INDEX_PROBLEM) from e
+        raise
+    os.replace(tmp, index)
+    return "indexed %d docs from %s in %.0fs -> %s (%.0f MB)" % (
+        n,
+        src,
+        time.time() - t0,
+        index,
+        os.path.getsize(index) / 1e6,
+    )
+
+
+def _write_index(src: str, tmp: str) -> int:
+    s = ro(src)
+    try:
+        s.execute("SELECT asset_id, document FROM documents LIMIT 1").fetchall()
+    except sqlite3.Error as e:
+        s.close()
+        raise unreadable_asset(src, e) from e
+    d = sqlite3.connect(tmp)
     d.executescript("""
       PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;
       CREATE TABLE meta(id INTEGER PRIMARY KEY, uri TEXT, framework TEXT, type TEXT,
@@ -142,14 +187,7 @@ def build() -> str:
     d.commit()
     d.close()
     s.close()
-    os.replace(tmp, index)
-    return "indexed %d docs from %s in %.0fs -> %s (%.0f MB)" % (
-        n,
-        src,
-        time.time() - t0,
-        index,
-        os.path.getsize(index) / 1e6,
-    )
+    return n
 
 
 @dataclass
@@ -177,10 +215,15 @@ def open_index() -> tuple[sqlite3.Connection, IndexState]:
             "no index yet; run `apple-doc --build` once (seconds to a few minutes, offline).",
             INDEX_PROBLEM,
         )
+    if os.path.isdir(path):
+        raise AppleDocError(
+            "index path %s is a directory; point APPLE_DOC_INDEX at a file." % path,
+            INDEX_PROBLEM,
+        )
     try:
         idx = ro(path)
         info = dict(idx.execute("SELECT k, v FROM info").fetchall())
-    except sqlite3.DatabaseError as e:
+    except sqlite3.Error as e:
         raise AppleDocError(
             "index at %s is unreadable (%s); run `apple-doc --build`." % (path, e),
             INDEX_PROBLEM,

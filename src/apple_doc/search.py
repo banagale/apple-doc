@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
+import sqlite3
 import time
 from dataclasses import dataclass, field
 
 from apple_doc.errors import PAGE_NOT_FOUND, USAGE, AppleDocError
-from apple_doc.index import asset_db, camel_parts, open_index, ro
+from apple_doc.index import asset_db, camel_parts, open_index, ro, unreadable_asset
 from apple_doc.render import WEB, avail, excerpt, page_lines
 
 STOP = set(
@@ -70,11 +72,25 @@ def search(
     words, terms = query_terms(query)
     if not terms:
         raise AppleDocError(
-            "empty query (only stopwords or punctuation); pass API names or topic words",
+            "no searchable words in the query (stopwords, punctuation and non-ASCII text are "
+            "ignored); pass API names or English topic words",
             USAGE,
         )
     idx, state = open_index()
+    if framework is not None:
+        framework = resolve_framework(idx, framework)
     src = state.source if os.path.exists(state.source) else asset_db()
+    try:
+        return _search(
+            idx, src, state, query, words, terms, framework, limit, lines, any_platform, t0
+        )
+    except sqlite3.Error as e:
+        raise unreadable_asset(src, e) from e
+    finally:
+        idx.close()
+
+
+def _search(idx, src, state, query, words, terms, framework, limit, lines, any_platform, t0):
     docs = ro(src)
     match = " OR ".join('"%s"' % t.replace('"', "") for t in terms)
     sql = (
@@ -124,7 +140,6 @@ def search(
                 score=round(score, 3),
             )
         )
-    idx.close()
     docs.close()
     return SearchResult(
         query=query,
@@ -134,6 +149,39 @@ def search(
         stale=state.stale,
         terms=terms,
     )
+
+
+def list_frameworks() -> list[tuple[str, int]]:
+    """Framework names in the index with their document counts."""
+    idx, _ = open_index()
+    try:
+        return idx.execute(
+            "SELECT framework, count(*) FROM meta WHERE framework <> '' "
+            "GROUP BY framework COLLATE NOCASE ORDER BY framework COLLATE NOCASE"
+        ).fetchall()
+    finally:
+        idx.close()
+
+
+def resolve_framework(idx: sqlite3.Connection, name: str) -> str:
+    """The name as given if the index knows it (any case); otherwise a usage error with hints."""
+    if not name.strip():
+        raise AppleDocError("--framework needs a name, e.g. -f AppKit", USAGE)
+    if idx.execute(
+        "SELECT 1 FROM meta WHERE framework = ? COLLATE NOCASE LIMIT 1", (name,)
+    ).fetchone():
+        return name
+    names = [r[0] for r in idx.execute("SELECT DISTINCT framework FROM meta WHERE framework <> ''")]
+    low = name.lower()
+    hints = [n for n in names if low in n.lower()]
+    hints += [n for n in names if "".join(w[0] for w in n.split()).lower() == low]
+    by_lower = {n.lower(): n for n in names}
+    hints += [by_lower[m] for m in difflib.get_close_matches(low, list(by_lower), n=3)]
+    hints = list(dict.fromkeys(hints))[:5]
+    msg = "unknown framework %r" % name
+    if hints:
+        msg += "; did you mean: " + ", ".join(hints)
+    raise AppleDocError(msg + " (apple-doc --list-frameworks shows all)", USAGE)
 
 
 def format_search(res: SearchResult, max_lines: int) -> str:
@@ -156,7 +204,11 @@ def format_search(res: SearchResult, max_lines: int) -> str:
     out.append(
         "(%d candidates, %.2fs; full page: apple-doc --full URI)" % (res.candidates, res.seconds)
     )
-    return "\n".join(out[:max_lines])
+    if len(out) > max_lines:
+        out = out[: max_lines - 1] + [
+            "... (output capped at %d lines; lower -n/--lines or raise --max-lines)" % max_lines
+        ]
+    return "\n".join(out)
 
 
 @dataclass
@@ -167,24 +219,36 @@ class Page:
     lines: list[str]
 
 
+def normalize_uri(uri: str) -> str:
+    """Accept a /documentation/... or /design/... path, or a developer.apple.com URL."""
+    uri = uri.strip()
+    uri = re.sub(r"^https?://(www\.)?developer\.apple\.com", "", uri, flags=re.I)
+    uri = re.sub(r"\?[^#]*", "", uri)  # ?language=objc and the like
+    path, sep, frag = uri.partition("#")
+    path = path.rstrip("/")
+    if path and not path.startswith("/"):
+        path = "/" + path
+    return path + sep + frag
+
+
 def get_page(uri: str) -> Page:
-    """One page or section by its documentation path or developer.apple.com URL."""
-    uri = uri.replace(WEB, "")
-    docs = ro(asset_db())
-    row = docs.execute(
-        "SELECT asset_id, document FROM documents WHERE asset_id=?", (uri,)
-    ).fetchone()
-    if not row:
-        row = docs.execute(
-            "SELECT asset_id, document FROM documents WHERE asset_id=? COLLATE NOCASE", (uri,)
-        ).fetchone()
-    docs.close()
-    if not row:
-        raise AppleDocError(
-            "no page " + uri + " (pass a path such as /documentation/AppKit/NSView, "
-            "as printed under each search hit)",
-            PAGE_NOT_FOUND,
-        )
+    """One page or section by its path, its URL, or (if unique) its last path segment."""
+    given = uri
+    uri = normalize_uri(uri)
+    if not uri:
+        raise AppleDocError("--full needs a path, e.g. /documentation/AppKit/NSView", USAGE)
+    src = asset_db()
+    try:
+        docs = ro(src)
+        q = "SELECT asset_id, document FROM documents WHERE asset_id=?"
+        row = docs.execute(q, (uri,)).fetchone()
+        if not row:
+            row = docs.execute(q + " COLLATE NOCASE", (uri,)).fetchone()
+        if not row:
+            row = _by_last_segment(docs, uri, given)
+        docs.close()
+    except sqlite3.Error as e:
+        raise unreadable_asset(src, e) from e
     doc = json.loads(row[1])
     return Page(
         uri=row[0],
@@ -192,6 +256,39 @@ def get_page(uri: str) -> Page:
         framework=doc.get("framework") or "",
         lines=page_lines(doc.get("content") or ""),
     )
+
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _by_last_segment(docs: sqlite3.Connection, uri: str, given: str):
+    """Find a page by its final path segment, e.g. an article slug under another framework."""
+    path, _, frag = uri.partition("#")
+    seg = path.rsplit("/", 1)[-1]
+    rows = []
+    if seg:
+        want = "/" + seg.lower() + (("#" + frag.lower()) if frag else "")
+        like = "%/" + _like_escape(seg) + ("#" + _like_escape(frag) if frag else "")
+        rows = [
+            r
+            for r in docs.execute(
+                "SELECT asset_id, document FROM documents WHERE asset_id LIKE ? ESCAPE '\\'",
+                (like,),
+            )
+            if r[0].lower().endswith(want)
+        ]
+    if len(rows) == 1:
+        return rows[0]
+    msg = "no page " + given
+    if rows:
+        msg += "; %d pages end that way, e.g. %s" % (
+            len(rows),
+            ", ".join(sorted(r[0] for r in rows)[:5]),
+        )
+    else:
+        msg += " (pass a path such as /documentation/AppKit/NSView, as printed under each hit)"
+    raise AppleDocError(msg, PAGE_NOT_FOUND)
 
 
 def format_page(page: Page, max_lines: int) -> str:

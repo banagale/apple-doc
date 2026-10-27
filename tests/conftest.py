@@ -84,6 +84,25 @@ PAGES = {
         "NSQuokkaView", "AppKit", "## See Also\nzebrafishcontainer and friends."
     ),
     "/documentation/AppKit/LongWidget": page("LongWidget", "AppKit", "# LongWidget\n" + LONG_BODY),
+    # An article filed under another framework, referenced from an AppKit topic page.
+    "/documentation/UIKit/glowing-in-the-dark": page(
+        "Glowing in the dark",
+        "UIKit",
+        "# Glowing in the dark\nMake views glow.\n" + "A very long paragraph about glow. " * 12,
+        platform=None,
+        type_="article",
+    ),
+    "/documentation/AppKit/glow-customization#Glow": page(
+        "Glow Customization: Glow",
+        "AppKit",
+        "## Glow\n<doc://com.example.documentation/documentation/UIKit/glowing-in-the-dark>\n"
+        "See ``doc://com.example.documentation/documentation/AppKit/NSQuokkaView``.",
+        platform=None,
+        type_="topic",
+    ),
+    # Two pages with the same last segment, for the ambiguous --full fallback.
+    "/documentation/AppKit/NSQuokkaView/init": page("init", "AppKit", "# init\nAppKit init."),
+    "/documentation/UIKit/FakeWindow/init": page("init", "UIKit", "# init\nUIKit init."),
 }
 # Many near-identical pages, for the output cap.
 for i in range(40):
