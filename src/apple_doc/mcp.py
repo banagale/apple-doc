@@ -260,9 +260,7 @@ class Server:
             return None  # notifications (initialized, cancelled, ...) need no reply
         if not _valid_id(req_id):
             return _error(None, INVALID_REQUEST, "request id must be a string or integer")
-        params = msg.get("params", {})
-        if params is None:
-            params = {}
+        params = msg.get("params", {})  # may be omitted, but not null
         if not isinstance(params, dict):
             return _error(req_id, INVALID_PARAMS, "params must be an object")
         try:

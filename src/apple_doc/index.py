@@ -292,6 +292,7 @@ def open_index() -> tuple[sqlite3.Connection, IndexState]:
             "index path %s is a directory; point APPLE_DOC_INDEX at a file." % path,
             INDEX_PROBLEM,
         )
+    idx = None
     try:
         idx = ro(path)
         info = dict(idx.execute("SELECT k, v FROM info").fetchall())
@@ -302,6 +303,8 @@ def open_index() -> tuple[sqlite3.Connection, IndexState]:
         if not isinstance(info.get("source"), str) or not info["source"]:
             raise ValueError("no source asset recorded")
     except (sqlite3.Error, ValueError, TypeError) as e:
+        if idx is not None:
+            idx.close()
         raise index_unreadable(path, e) from e
     state = IndexState(
         path=path,

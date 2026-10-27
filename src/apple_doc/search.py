@@ -86,25 +86,34 @@ def search(
             USAGE,
         )
     idx, state = open_index()
-    if framework is not None:
+    try:  # every path out closes the index, including unknown-framework errors
+        if framework is not None:
+            try:
+                framework = resolve_framework(idx, framework)
+            except sqlite3.Error as e:
+                raise index_unreadable(state.path, e) from e
+        src = state.source if os.path.exists(state.source) else asset_db()
         try:
-            framework = resolve_framework(idx, framework)
+            return _search(
+                idx, src, state, query, words, terms, framework, limit, lines, any_platform, t0
+            )
         except sqlite3.Error as e:
-            idx.close()
-            raise index_unreadable(state.path, e) from e
-    src = state.source if os.path.exists(state.source) else asset_db()
-    try:
-        return _search(
-            idx, src, state, query, words, terms, framework, limit, lines, any_platform, t0
-        )
-    except sqlite3.Error as e:
-        raise unreadable_asset(src, e) from e
+            raise unreadable_asset(src, e) from e
     finally:
         idx.close()
 
 
 def _search(idx, src, state, query, words, terms, framework, limit, lines, any_platform, t0):
     docs = ro(src)
+    try:
+        return _rank(
+            idx, docs, state, query, words, terms, framework, limit, lines, any_platform, t0
+        )
+    finally:
+        docs.close()
+
+
+def _rank(idx, docs, state, query, words, terms, framework, limit, lines, any_platform, t0):
     match = " OR ".join('"%s"' % t.replace('"', "") for t in terms)
     sql = (
         "SELECT m.id, m.uri, m.framework, m.type, m.macos, bm25(fts, 8.0, 4.0, 1.0) AS r "
@@ -161,7 +170,6 @@ def _search(idx, src, state, query, words, terms, framework, limit, lines, any_p
                 score=round(score, 3),
             )
         )
-    docs.close()
     return SearchResult(
         query=query,
         hits=hits,
@@ -279,6 +287,7 @@ def get_page(uri: str) -> Page:
     if not uri:
         raise AppleDocError("--full needs a path, e.g. /documentation/AppKit/NSView", USAGE)
     src = asset_db()
+    docs = None
     try:
         docs = ro(src)
         q = "SELECT asset_id, document FROM documents WHERE asset_id=?"
@@ -310,9 +319,11 @@ def get_page(uri: str) -> Page:
                 "page %s exists but its stored content is unreadable" % row[0], ASSET_NOT_FOUND
             )
         sections = [] if "#" in row[0] else page_sections(docs, row[0])
-        docs.close()
     except sqlite3.Error as e:
         raise unreadable_asset(src, e) from e
+    finally:
+        if docs is not None:
+            docs.close()
     return Page(
         uri=row[0],
         title=doc.get("title") or "",

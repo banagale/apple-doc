@@ -388,3 +388,38 @@ def test_arguments_may_be_omitted_but_not_null(legacy):
     assert ok["result"]["isError"] is False
     e = call(legacy, req(2, "tools/call", {"name": "list_frameworks", "arguments": None}))
     assert e["error"]["code"] == -32602
+
+
+def test_null_params_rejected_then_served(legacy):
+    e = call(legacy, {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": None})
+    assert e["error"]["code"] == -32602
+    assert call(legacy, req(2, "tools/list"))["result"]["tools"]
+
+
+def test_connections_close_after_failed_lookups(legacy, monkeypatch):
+    import apple_doc.index as index_mod
+    import apple_doc.search as search_mod
+
+    opened = []
+    real_ro = index_mod.ro
+
+    def tracking_ro(path):
+        conn = real_ro(path)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(search_mod, "ro", tracking_ro)
+    monkeypatch.setattr(index_mod, "ro", tracking_ro)
+    tool(legacy, "read_apple_doc", {"path": "/documentation/AppKit/Nope"})
+    tool(legacy, "read_apple_doc", {"path": "NSQuokkaView", "section": "Nope"})
+    tool(legacy, "search_apple_docs", {"query": "x", "framework": "HIG"})
+    tool(legacy, "search_apple_docs", {"query": "glimmerKey"})
+    tool(legacy, "list_frameworks", {})
+    assert opened
+    for conn in opened:
+        try:
+            conn.execute("SELECT 1")
+        except Exception as e:  # sqlite3.ProgrammingError: closed database
+            assert "closed" in str(e)
+        else:
+            raise AssertionError("connection left open")
