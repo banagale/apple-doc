@@ -38,11 +38,13 @@ apple-doc QUERY... [-f FRAMEWORK] [-n N] [--lines N] [--any-platform] [--max-lin
 apple-doc --full URI [--json]   # one page or section
 apple-doc --build               # (re)build the keyword index
 apple-doc --doctor              # check asset + index
+apple-doc --list-frameworks     # names --framework accepts
 ```
 
 Exit codes are part of the interface (documented in `--help` and the README):
-0 ok, 1 no hits, 2 usage, 3 asset not found, 4 index missing/unreadable (stale for `--doctor`),
-5 page not found. Keep them stable.
+0 ok, 1 no hits, 2 usage, 3 asset not found or unreadable, 4 index missing/unreadable (stale
+for `--doctor`), 5 page not found. Errors are one `apple-doc: ...` line on stderr, never a
+traceback. Keep them stable.
 
 ## Quick Commands
 

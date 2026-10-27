@@ -13,9 +13,10 @@ framework, macOS availability, declaration, the best-matching lines and the page
 ```bash
 apple-doc NSTextView undo -f AppKit          # search; put class and method names in the query
 apple-doc loadHTMLString baseURL relative -f WebKit -n 5
-apple-doc toolbars -f "Human Interface Guidelines" --any-platform
+apple-doc toolbars -f "Human Interface Guidelines"
 apple-doc --full '/documentation/AppKit/NSResponder/noResponder(for:)'   # one whole page; quote it
 apple-doc --json NSWindow becomeKey          # same search as JSON
+apple-doc --list-frameworks                  # names that -f accepts
 ```
 
 ## Forming queries: you are the semantic layer
@@ -29,18 +30,21 @@ Apple's pages use before searching:
 | "why does my text view stay dirty after undo" | `NSTextView undo textDidChange -f AppKit`, then `NSUndoManager didUndoChangeNotification` |
 | "images in my HTML don't load" | `WKWebView loadHTMLString baseURL relative -f WebKit` |
 | "colours are wrong in dark mode" | `dark mode appearance -f AppKit` (articles), then `performAsCurrentDrawingAppearance` |
-| "what does Apple say about toolbars" | `toolbars -f "Human Interface Guidelines" --any-platform` |
+| "what does Apple say about toolbars" | `toolbars -f "Human Interface Guidelines"` |
 
 - Run 2-3 bounded queries, not one: class plus member, then the notification or delegate method,
   then the topic word.
 - Don't know the API? Search the topic words with `-n 5`, open the overview article with `--full`,
-  and query the symbol names it mentions (they print as `` `name` ``).
+  and query the symbol names it mentions (they print as `` `name` ``; article links print as
+  paths you can pass to `--full`).
 - Narrow with `-f FRAMEWORK`. Results prefer macOS symbols; `--any-platform` turns that off.
+  Cross-platform articles are often filed under UIKit or SwiftUI, so drop `-f` to find an article.
 - Absence needs 2-3 materially different queries before you conclude a page doesn't exist.
 - Apple doesn't document everything. Undocumented behaviour needs a small probe program, not a guess.
 
 ## Exit codes and upkeep
 
-0 ok, 1 no hits, 2 usage, 3 documentation asset missing, 4 index missing (run `apple-doc --build`),
-5 page not found. A one-line stderr hint says when the index is older than the documentation;
+0 ok, 1 no hits, 2 usage (including an unknown `-f` name, with suggestions), 3 documentation
+asset missing or unreadable, 4 index missing (run `apple-doc --build`), 5 page not found.
+Errors are one line on stderr, also in `--json` mode. A one-line stderr hint says when the index is older than the documentation;
 run `apple-doc --build` (seconds). `apple-doc --doctor` checks the setup.

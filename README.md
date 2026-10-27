@@ -8,13 +8,13 @@ $ apple-doc loadHTMLString baseURL relative -f WebKit -n 1
    Instance Method of WKWebView
    Loads the contents of the specified HTML string and navigates to it.
      func loadHTMLString(_ string: String, baseURL: URL?) -> WKNavigation?
-   The string to use as the contents of the webpage.
+   `string`
    `baseURL`
    The base URL to use when the system resolves relative URLs within the HTML string.
-   Use this method to navigate to a webpage that you loaded or created yourself. ...
+   Use this method to navigate to a webpage that you loaded or created yourself. For example, you might use this method to load HTML content that your app generates programmatically.
    https://developer.apple.com/documentation/WebKit/WKWebView/loadHTMLString(_:baseURL:)
 
-(400 candidates, 0.02s; full page: apple-doc --full URI)
+(390 candidates, 0.02s; full page: apple-doc --full URI)
 ```
 
 ## What it is and why
@@ -81,14 +81,15 @@ documentation. When that happens, every search prints a one-line reminder on std
 
 ```text
 usage: apple-doc [options] QUERY...
-       apple-doc --full URI | --build | --doctor
+       apple-doc --full URI | --build | --doctor | --list-frameworks
 
 Search Apple's developer documentation offline: API reference for every framework,
 declarations, availability, articles and the Human Interface Guidelines. Reads the copy of
 the documentation that macOS downloads for Xcode; no network, no Xcode process.
 
 The search is keyword-based: pass API names and the words Apple's pages use, not sentences.
-Results prefer symbols available on macOS (see --any-platform).
+Results prefer symbols available on macOS (see --any-platform). Put "--" before a query
+that starts with "-", e.g. apple-doc -- -initWithFrame.
 
 positional arguments:
   QUERY                 API names and topic words
@@ -97,30 +98,34 @@ options:
   -h, --help            show this help message and exit
   --framework NAME, -f NAME
                         restrict to one framework, e.g. AppKit, WebKit, Foundation, SwiftUI,
-                        "Human Interface Guidelines" (case-insensitive)
+                        "Human Interface Guidelines" (case-insensitive; see --list-frameworks)
   --limit N, -n N       number of hits to show (default 3)
-  --lines N             matching body lines per hit (default 4)
+  --lines N             matching body lines per hit, shown after its summary and declaration
+                        (default 4)
   --any-platform        do not prefer macOS-available symbols
-  --max-lines N         cap on total output lines for a search (default 60)
-  --full URI            print one whole page or section (first 80 lines); URI is the
-                        /documentation/... path or developer.apple.com URL shown under a hit
-  --json                machine-readable output for a search or --full
+  --max-lines N         cap on total output lines for a text search (default 60)
+  --full URI            print one whole page or section (first 80 lines); URI is the path
+                        (/documentation/... or /design/...) or developer.apple.com URL shown under
+                        a hit
+  --json                JSON output for a search, --full (whole page) or --list-frameworks
   --build               (re)build the keyword index; run once, and after macOS/Xcode updates
                         replace the documentation
   --doctor              check the documentation asset and the index, then exit
-  --version             show program's version number and exit
+  --list-frameworks     list the framework names --framework accepts, with page counts
+  --version, -V         show program's version number and exit
 
 examples:
   apple-doc --build                                  build the index (once, and after updates)
   apple-doc NSTextView undo -f AppKit                class and member names work best
   apple-doc loadHTMLString baseURL relative -f WebKit -n 5
-  apple-doc toolbars -f "Human Interface Guidelines" --any-platform
+  apple-doc toolbars -f "Human Interface Guidelines"
   apple-doc --full '/documentation/AppKit/NSResponder/noResponder(for:)'  (quote it)
   apple-doc --json NSWindow becomeKey | jq '.hits[].uri'
 
 exit codes:
-  0  success            1  no hits             2  usage error (bad flags, empty query)
-  3  documentation asset not found (Xcode has not downloaded it)
+  0  success            1  no hits             2  usage error (bad flags, empty query,
+                                                    unknown --framework)
+  3  documentation asset not found or unreadable (Xcode has not downloaded it)
   4  index missing or unreadable (run apple-doc --build); --doctor also uses 4 for a stale index
   5  page not found (--full)
 
@@ -134,18 +139,29 @@ environment:
 ```bash
 apple-doc NSTextView undo -f AppKit                 # class + member, one framework
 apple-doc NSWindow becomeKey notification -n 5      # more hits
-apple-doc toolbars -f "Human Interface Guidelines" --any-platform
+apple-doc toolbars -f "Human Interface Guidelines"
+apple-doc --list-frameworks                         # names -f accepts, with page counts
 apple-doc --full '/documentation/AppKit/NSResponder/noResponder(for:)'
 apple-doc --full https://developer.apple.com/documentation/appkit/nsview   # URLs work, any case
+apple-doc --full supporting-dark-mode-in-your-interface   # a unique last segment works too
 apple-doc --json SecItemAdd -f Security | jq -r '.hits[] | "\(.title)\t\(.url)"'
 ```
 
 Quote `--full` paths. Swift selectors contain parentheses, and zsh treats unquoted
-parentheses as a glob.
+parentheses as a glob. `--full` also accepts `http://` URLs, `?language=` suffixes and a
+missing leading slash. If the exact path isn't found, it looks for a single page whose last
+segment matches, and lists the candidates when there are several.
 
-`--json` prints `{query, terms, candidates, seconds, stale_index, hits: [{rank, title, framework,
-role, availability, uri, url, excerpt, score}]}` for a search, and `{uri, title, framework,
-lines}` for `--full`.
+JSON output:
+
+- A search prints `{query, terms, candidates, seconds, stale_index, hits: [{rank, title,
+  framework, role, availability, uri, url, excerpt, score}]}`. A search with no hits still
+  prints this object, with `hits: []` and exit code 1. `--max-lines` doesn't apply.
+- `--full` prints `{uri, title, framework, lines}` with every line of the page, not just the
+  first 80.
+- `--list-frameworks` prints `[{framework, pages}]`.
+- Errors are never JSON. They go to stderr as one `apple-doc: ...` line, so check the exit code
+  before parsing stdout.
 
 ### Exit codes
 
@@ -153,13 +169,13 @@ lines}` for `--full`.
 |---|---|
 | 0 | Success (a search with at least one hit, a page printed, index built, doctor all clear) |
 | 1 | The search ran and found nothing |
-| 2 | Usage error: unknown flag, missing or empty query, conflicting modes |
-| 3 | Apple's documentation asset not found |
+| 2 | Usage error: unknown flag, missing or empty query, unknown `--framework` (with suggestions), conflicting modes |
+| 3 | Apple's documentation asset not found, or not a readable documentation database |
 | 4 | Index missing or unreadable; `--doctor` also returns 4 when the index is stale |
 | 5 | `--full`: no page at that path |
 
 A stale index doesn't fail a search. The search still runs, and one line on stderr tells you to
-rebuild.
+rebuild. When text output hits the `--max-lines` cap, the last line says so.
 
 ## Forming queries (for humans and AI agents)
 
@@ -167,22 +183,33 @@ rebuild.
 are the semantic layer. Before searching, translate the question into the class, method,
 notification and topic names Apple's pages use.
 
+This approach comes from [Contextify](https://contextify.sh)'s
+[Total Recall](https://contextify.sh/total-recall/) skill. There, the agent searches its own
+past AI coding sessions by turning a question into the concrete names and terms the record
+uses, then runs a few small queries. The agent supplies the meaning, and the index stays a
+fast, local keyword index. apple-doc applies the same split to Apple's documentation.
+
 | Question | Query |
 |---|---|
 | "store a password securely" | `Keychain SecItemAdd generic password` (the sentence finds Password AutoFill instead) |
 | "why does my text view stay dirty after undo" | `NSTextView undo textDidChange -f AppKit`, then `NSUndoManager didUndoChangeNotification` |
 | "images in my HTML don't load" | `WKWebView loadHTMLString baseURL relative -f WebKit` |
 | "colours are wrong in dark mode" | `dark mode appearance -f AppKit` (articles), then `performAsCurrentDrawingAppearance` |
-| "what does Apple say about toolbars" | `toolbars -f "Human Interface Guidelines" --any-platform` |
+| "what does Apple say about toolbars" | `toolbars -f "Human Interface Guidelines"` |
 
 - **Run 2 or 3 small queries, not one.** Try the class plus the member, then the notification or
   delegate method, then the topic word. Different wording finds different pages.
 - **Don't know the API name? Start from the topic article.** Apple's overview articles are titled
   by topic ("Appearance Customization", "Drag and Drop", "Keychain services"). Query the topic
   words with `-n 5` and open the article with `--full`. Then query the symbol names it mentions;
-  they print as `` `name` ``.
+  they print as `` `name` ``. Links to other articles print as paths you can pass straight to
+  `--full`.
 - **Narrow with `-f FRAMEWORK`**: AppKit, WebKit, SwiftUI, Foundation, Security, and so on.
-  Results prefer macOS symbols. Use `--any-platform` for iOS-only APIs.
+  `--list-frameworks` shows every name. Results prefer macOS symbols. Use `--any-platform` for
+  iOS-only APIs.
+- **Articles that cover several platforms are often filed under UIKit or SwiftUI**, even when
+  they cover macOS too. For example, "Supporting Dark Mode in your interface" lives under UIKit.
+  Drop `-f` when you are looking for an article.
 - **Read the excerpt, then `--full` the one page you need.**
 - **Absence needs 2 or 3 different queries** before you conclude a page doesn't exist.
 - **The docs don't cover everything.** Some behaviour Apple never documents, for example
